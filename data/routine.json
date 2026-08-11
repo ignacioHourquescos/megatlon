@@ -1,0 +1,273 @@
+{
+  "title": "Rutina",
+  "goal": "Fortalecimiento General",
+  "trainer": "Nicolás Rezzano",
+  "validFrom": "2026-08-04",
+  "validTo": "2026-10-02",
+  "days": [
+    {
+      "id": "day-1",
+      "name": "Día 1",
+      "blocks": [
+        {
+          "type": "warmup",
+          "title": "Entrada en calor",
+          "exercises": [
+            {
+              "id": "d1-e01",
+              "name": "Cinta por frecuencia cardíaca",
+              "sets": 1,
+              "durationMinutes": 10,
+              "image": "images/exercises/d1-01.png"
+            }
+          ]
+        },
+        {
+          "type": "strength",
+          "title": "Bloque principal",
+          "exercises": [
+            {
+              "id": "d1-e02",
+              "name": "Dorsal Hammer",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d1-02.png"
+            },
+            {
+              "id": "d1-e03",
+              "name": "Tríceps con polea (agarre prono)",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d1-03.png"
+            },
+            {
+              "id": "d1-e04",
+              "name": "Remo en Hammer",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d1-04.png"
+            }
+          ]
+        },
+        {
+          "type": "circuit",
+          "title": "Circuito",
+          "rounds": 3,
+          "exercises": [
+            {
+              "id": "d1-e05",
+              "name": "Vuelos frontales con disco",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d1-05.png"
+            },
+            {
+              "id": "d1-e06",
+              "name": "Tríceps copa",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d1-06.png"
+            },
+            {
+              "id": "d1-e07",
+              "name": "Remo con banda",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d1-07.png"
+            }
+          ]
+        },
+        {
+          "type": "abs",
+          "title": "Circuito abdominal",
+          "rounds": 3,
+          "exercises": [
+            {
+              "id": "d1-e08",
+              "name": "Plancha prona alta + toque de hombros",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d1-08.png"
+            },
+            {
+              "id": "d1-e09",
+              "name": "Abdominal recto corto",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d1-09.png"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "day-2",
+      "name": "Día 2",
+      "blocks": [
+        {
+          "type": "warmup",
+          "title": "Entrada en calor",
+          "exercises": [
+            {
+              "id": "d2-e01",
+              "name": "Cinta por frecuencia cardíaca",
+              "sets": 1,
+              "durationMinutes": 10,
+              "image": "images/exercises/d2-01.png"
+            }
+          ]
+        },
+        {
+          "type": "strength",
+          "title": "Bloque principal",
+          "exercises": [
+            {
+              "id": "d2-e02",
+              "name": "Vuelos laterales con mancuernas",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d2-02.png"
+            },
+            {
+              "id": "d2-e03",
+              "name": "Empuje de pecho con banda",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d2-03.png"
+            },
+            {
+              "id": "d2-e04",
+              "name": "Apertura de pecho con mancuernas en banco inclinado",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d2-04.png"
+            },
+            {
+              "id": "d2-e05",
+              "name": "Empuje de pecho en máquina",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d2-05.png"
+            },
+            {
+              "id": "d2-e06",
+              "name": "Bíceps con polea",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d2-06.png"
+            },
+            {
+              "id": "d2-e07",
+              "name": "Empuje de hombros en máquina",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d2-07.png"
+            }
+          ]
+        },
+        {
+          "type": "abs",
+          "title": "Circuito abdominal",
+          "rounds": 3,
+          "exercises": [
+            {
+              "id": "d2-e08",
+              "name": "Puente prono más abducción",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d2-08.png"
+            },
+            {
+              "id": "d2-e09",
+              "name": "Abdominales oblicuos alternados",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d2-09.png"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "day-3",
+      "name": "Día 3",
+      "blocks": [
+        {
+          "type": "warmup",
+          "title": "Entrada en calor",
+          "exercises": [
+            {
+              "id": "d3-e01",
+              "name": "Cinta por frecuencia cardíaca",
+              "sets": 1,
+              "durationMinutes": 10,
+              "image": "images/exercises/d3-01.png"
+            }
+          ]
+        },
+        {
+          "type": "strength",
+          "title": "Bloque principal",
+          "exercises": [
+            {
+              "id": "d3-e02",
+              "name": "Sentadilla copa",
+              "sets": 4,
+              "reps": 12,
+              "image": "images/exercises/d3-02.png"
+            },
+            {
+              "id": "d3-e03",
+              "name": "Extensión de rodillas en máquina",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d3-03.png"
+            },
+            {
+              "id": "d3-e04",
+              "name": "Flexión de rodillas en máquina",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d3-04.png"
+            },
+            {
+              "id": "d3-e05",
+              "name": "Gemelos en prensa",
+              "sets": 4,
+              "reps": 12,
+              "image": "images/exercises/d3-05.png"
+            },
+            {
+              "id": "d3-e06",
+              "name": "Subidas al banco",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d3-06.png"
+            }
+          ]
+        },
+        {
+          "type": "abs",
+          "title": "Circuito abdominal",
+          "rounds": 3,
+          "exercises": [
+            {
+              "id": "d3-e07",
+              "name": "Puente prono",
+              "sets": 3,
+              "durationSeconds": 60,
+              "image": "images/exercises/d3-07.png"
+            },
+            {
+              "id": "d3-e08",
+              "name": "Abdominal cruzado",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d3-08.png"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
