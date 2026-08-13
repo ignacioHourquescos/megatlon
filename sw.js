@@ -1,9 +1,10 @@
-const CACHE_NAME = "megatlon-v20";
+const CACHE_NAME = "megatlon-v21";
 
 const EXERCISE_IMAGES = [
   ...Array.from({ length: 9 }, (_, i) => `./images/exercises/d1-${String(i + 1).padStart(2, "0")}.png`),
   ...Array.from({ length: 9 }, (_, i) => `./images/exercises/d2-${String(i + 1).padStart(2, "0")}.png`),
   ...Array.from({ length: 8 }, (_, i) => `./images/exercises/d3-${String(i + 1).padStart(2, "0")}.png`),
+  ...Array.from({ length: 9 }, (_, i) => `./images/exercises/d4-${String(i + 1).padStart(2, "0")}.png`),
 ];
 
 const APP_SHELL = [

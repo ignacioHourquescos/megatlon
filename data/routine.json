@@ -2,8 +2,8 @@
   "title": "Rutina",
   "goal": "Fortalecimiento General",
   "trainer": "Nicolás Rezzano",
-  "validFrom": "2026-08-04",
-  "validTo": "2026-10-02",
+  "validFrom": "2026-08-13",
+  "validTo": "2026-10-11",
   "days": [
     {
       "id": "day-1",
@@ -264,6 +264,107 @@
               "sets": 3,
               "reps": 20,
               "image": "images/exercises/d3-08.png"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "day-4",
+      "name": "Día 4",
+      "blocks": [
+        {
+          "type": "warmup",
+          "title": "Entrada en calor",
+          "exercises": [
+            {
+              "id": "d4-e01",
+              "name": "Remo por frecuencia cardíaca",
+              "sets": 1,
+              "durationMinutes": 15,
+              "image": "images/exercises/d4-01.png"
+            }
+          ]
+        },
+        {
+          "type": "abs",
+          "title": "Circuito abdominal",
+          "rounds": 3,
+          "exercises": [
+            {
+              "id": "d4-e02",
+              "name": "Abdominales bisagra a una pierna",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d4-02.png"
+            },
+            {
+              "id": "d4-e03",
+              "name": "Samurai",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d4-03.png"
+            },
+            {
+              "id": "d4-e04",
+              "name": "Tijeras",
+              "sets": 3,
+              "reps": 20,
+              "image": "images/exercises/d4-04.png"
+            }
+          ]
+        },
+        {
+          "type": "strength",
+          "title": "Bloque principal",
+          "exercises": [
+            {
+              "id": "d4-e05",
+              "name": "Remo con Core Bag",
+              "sets": 4,
+              "reps": 10,
+              "image": "images/exercises/d4-05.png"
+            }
+          ]
+        },
+        {
+          "type": "circuit",
+          "title": "Combinado",
+          "rounds": 3,
+          "exercises": [
+            {
+              "id": "d4-e06",
+              "name": "Vuelos en el plano de la escápula",
+              "sets": 3,
+              "reps": 8,
+              "image": "images/exercises/d4-06.png"
+            },
+            {
+              "id": "d4-e07",
+              "name": "Puente lateral",
+              "sets": 3,
+              "durationSeconds": 20,
+              "image": "images/exercises/d4-07.png"
+            },
+            {
+              "id": "d4-e08",
+              "name": "Remo alto en polea (a un brazo)",
+              "sets": 3,
+              "reps": 10,
+              "image": "images/exercises/d4-08.png"
+            }
+          ]
+        },
+        {
+          "type": "warmup",
+          "title": "Cierre",
+          "exercises": [
+            {
+              "id": "d4-e09",
+              "name": "Elíptico por percepción del esfuerzo",
+              "sets": 1,
+              "durationMinutes": 10,
+              "image": "images/exercises/d4-09.png"
             }
           ]
         }
