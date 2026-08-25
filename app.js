@@ -1,5 +1,7 @@
 const STORAGE_KEY = "megatlon-session-v2";
 const SWIPE_THRESHOLD = 72;
+const RAIL_LONG_PRESS_MS = 280;
+const RAIL_MOVE_CANCEL_PX = 10;
 
 const state = {
   routine: null,
@@ -8,6 +10,10 @@ const state = {
   view: "routine", // "routine" | "weight"
   session: loadSession(),
 };
+
+function asPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
 
 function currentWeekKey(date = new Date()) {
   const utc = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -18,18 +24,30 @@ function currentWeekKey(date = new Date()) {
   return `${utc.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+function emptySession() {
+  return {
+    completed: {},
+    weightsByTitle: {},
+    bodyWeight: [],
+    railOrder: {},
+    prescriptions: {},
+  };
+}
+
 function loadSession() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { completed: {}, weightsByTitle: {}, bodyWeight: [] };
+    if (!raw) return emptySession();
     const parsed = JSON.parse(raw);
     return {
       completed: parsed.completed || {},
       weightsByTitle: parsed.weightsByTitle || {},
       bodyWeight: Array.isArray(parsed.bodyWeight) ? parsed.bodyWeight : [],
+      railOrder: asPlainObject(parsed.railOrder),
+      prescriptions: asPlainObject(parsed.prescriptions),
     };
   } catch {
-    return { completed: {}, weightsByTitle: {}, bodyWeight: [] };
+    return emptySession();
   }
 }
 
@@ -265,23 +283,98 @@ function getDayExercises(day) {
   return day.blocks.flatMap((block) => block.exercises);
 }
 
+function applyExerciseOrder(exercises, dayId) {
+  const saved = state.session.railOrder[dayId];
+  if (!Array.isArray(saved) || !saved.length) return exercises.slice();
+
+  const byId = new Map(exercises.map((exercise) => [exercise.id, exercise]));
+  const ordered = [];
+  const seen = new Set();
+
+  saved.forEach((id) => {
+    const exercise = byId.get(id);
+    if (!exercise || seen.has(id)) return;
+    ordered.push(exercise);
+    seen.add(id);
+  });
+
+  exercises.forEach((exercise) => {
+    if (!seen.has(exercise.id)) ordered.push(exercise);
+  });
+
+  return ordered;
+}
+
+function getOrderedDayExercises(day = getActiveDay()) {
+  return applyExerciseOrder(getDayExercises(day), day.id);
+}
+
+function setDayExerciseOrder(dayId, ids) {
+  state.session.railOrder[dayId] = ids;
+  saveSession();
+}
+
+function getPrescription(exercise) {
+  const override = state.session.prescriptions[exercise.id] || {};
+  return {
+    sets: override.sets ?? exercise.sets,
+    reps: override.reps ?? exercise.reps,
+    durationMinutes: override.durationMinutes ?? exercise.durationMinutes,
+    durationSeconds: override.durationSeconds ?? exercise.durationSeconds,
+  };
+}
+
+function setPrescriptionField(exerciseId, field, value) {
+  const current = state.session.prescriptions[exerciseId] || {};
+  state.session.prescriptions[exerciseId] = { ...current, [field]: value };
+  saveSession();
+}
+
+function parsePositiveInt(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function formatPrescription(exercise) {
-  if (exercise.durationMinutes != null) {
-    return `${exercise.durationMinutes} min`;
+  const rx = getPrescription(exercise);
+  if (rx.durationMinutes != null) {
+    return `${rx.durationMinutes} min`;
   }
-  if (exercise.durationSeconds != null && exercise.sets != null) {
-    return `${exercise.sets} × ${exercise.durationSeconds}s`;
+  if (rx.durationSeconds != null && rx.sets != null) {
+    return `${rx.sets} × ${rx.durationSeconds}s`;
   }
-  if (exercise.durationSeconds != null) {
-    return `${exercise.durationSeconds}s`;
+  if (rx.durationSeconds != null) {
+    return `${rx.durationSeconds}s`;
   }
-  if (exercise.sets != null && exercise.reps != null) {
-    return `${exercise.sets} × ${exercise.reps}`;
+  if (rx.sets != null && rx.reps != null) {
+    return `${rx.sets} × ${rx.reps}`;
   }
-  if (exercise.sets != null) {
-    return `${exercise.sets} series`;
+  if (rx.sets != null) {
+    return `${rx.sets} series`;
   }
   return "—";
+}
+
+function getOrderedBlockGroups(day) {
+  const blockByExerciseId = new Map();
+  day.blocks.forEach((block) => {
+    block.exercises.forEach((exercise) => {
+      blockByExerciseId.set(exercise.id, block);
+    });
+  });
+
+  const groups = [];
+  getOrderedDayExercises(day).forEach((exercise) => {
+    const block = blockByExerciseId.get(exercise.id);
+    const last = groups[groups.length - 1];
+    if (last && last.block === block) {
+      last.exercises.push(exercise);
+      return;
+    }
+    groups.push({ block, exercises: [exercise] });
+  });
+
+  return groups;
 }
 
 function scrollToExercise(exerciseId) {
@@ -328,11 +421,183 @@ function onRailClick(exercise) {
   requestAnimationFrame(() => scrollToExercise(exercise.id));
 }
 
+function getRailThumbs(rail) {
+  return [...rail.querySelectorAll(".rail__thumb:not(.rail__restart)")];
+}
+
+function moveRailThumbToIndex(rail, thumb, targetIndex) {
+  const thumbs = getRailThumbs(rail);
+  const currentIndex = thumbs.indexOf(thumb);
+  if (currentIndex < 0 || targetIndex < 0 || currentIndex === targetIndex) {
+    return currentIndex;
+  }
+
+  thumbs.splice(currentIndex, 1);
+  thumbs.splice(targetIndex, 0, thumb);
+
+  const restart = rail.querySelector(".rail__restart");
+  thumbs.forEach((item) => rail.insertBefore(item, restart));
+  return targetIndex;
+}
+
+function railIndexFromPoint(rail, clientY) {
+  const thumbs = getRailThumbs(rail);
+  if (!thumbs.length) return 0;
+
+  for (let i = 0; i < thumbs.length; i += 1) {
+    const rect = thumbs[i].getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return i;
+  }
+
+  return thumbs.length - 1;
+}
+
+function attachRailReorder(rail, thumb) {
+  let pointerId = null;
+  let startX = 0;
+  let startY = 0;
+  let longPressTimer = 0;
+  let dragging = false;
+  let movedWhileDragging = false;
+  let suppressClick = false;
+  let originIndex = -1;
+  let pointerType = "touch";
+
+  const clearTimer = () => {
+    if (longPressTimer) {
+      window.clearTimeout(longPressTimer);
+      longPressTimer = 0;
+    }
+  };
+
+  const unbindWindow = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  const stopDragging = () => {
+    dragging = false;
+    pointerId = null;
+    movedWhileDragging = false;
+    thumb.classList.remove("is-dragging");
+    rail.classList.remove("is-reordering");
+    originIndex = -1;
+    unbindWindow();
+  };
+
+  const commitOrder = () => {
+    const day = getActiveDay();
+    const ids = getRailThumbs(rail).map((item) => item.dataset.exerciseId);
+    setDayExerciseOrder(day.id, ids);
+    renderDay();
+  };
+
+  const beginDrag = () => {
+    if (dragging) return;
+    dragging = true;
+    originIndex = getRailThumbs(rail).indexOf(thumb);
+    thumb.classList.add("is-dragging");
+    rail.classList.add("is-reordering");
+    if (typeof navigator.vibrate === "function" && pointerType !== "mouse") {
+      navigator.vibrate(12);
+    }
+  };
+
+  const onMove = (event) => {
+    if (pointerId !== event.pointerId) return;
+
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    const distance = Math.hypot(dx, dy);
+
+    if (!dragging) {
+      if (pointerType === "mouse") {
+        if (distance > RAIL_MOVE_CANCEL_PX) beginDrag();
+        else return;
+      } else {
+        if (distance > RAIL_MOVE_CANCEL_PX) clearTimer();
+        return;
+      }
+    }
+
+    event.preventDefault();
+    try {
+      thumb.setPointerCapture(event.pointerId);
+    } catch {
+      // ignore
+    }
+
+    const nextIndex = railIndexFromPoint(rail, event.clientY);
+    const currentIndex = getRailThumbs(rail).indexOf(thumb);
+    if (nextIndex !== currentIndex) movedWhileDragging = true;
+    moveRailThumbToIndex(rail, thumb, nextIndex);
+  };
+
+  const onUp = (event) => {
+    if (pointerId !== event.pointerId) return;
+    clearTimer();
+
+    if (!dragging) {
+      pointerId = null;
+      unbindWindow();
+      return;
+    }
+
+    const currentIndex = getRailThumbs(rail).indexOf(thumb);
+    const changed = originIndex !== currentIndex;
+    suppressClick = movedWhileDragging || changed;
+    stopDragging();
+    if (changed) commitOrder();
+  };
+
+  thumb.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    pointerId = event.pointerId;
+    pointerType = event.pointerType || "touch";
+    startX = event.clientX;
+    startY = event.clientY;
+    dragging = false;
+    movedWhileDragging = false;
+    suppressClick = false;
+    clearTimer();
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+
+    if (pointerType !== "mouse") {
+      longPressTimer = window.setTimeout(() => {
+        longPressTimer = 0;
+        beginDrag();
+      }, RAIL_LONG_PRESS_MS);
+    }
+  });
+
+  thumb.addEventListener(
+    "click",
+    (event) => {
+      if (!suppressClick) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      suppressClick = false;
+    },
+    true
+  );
+
+  thumb.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
+}
+
 function renderRail() {
   const rail = document.getElementById("exercise-rail");
   rail.innerHTML = "";
+  rail.classList.remove("is-reordering");
 
-  getDayExercises(getActiveDay()).forEach((exercise) => {
+  const day = getActiveDay();
+  const byId = new Map(getDayExercises(day).map((exercise) => [exercise.id, exercise]));
+
+  getOrderedDayExercises(day).forEach((exercise) => {
     const done = isDone(exercise.id);
     const button = document.createElement("button");
     button.type = "button";
@@ -340,19 +605,26 @@ function renderRail() {
       state.listMode === "done" && done ? " is-filter" : ""
     }`;
     button.dataset.exerciseId = exercise.id;
-    button.title = exercise.name;
+    button.title = `${exercise.name}. Mantener presionado para reordenar`;
     button.setAttribute(
       "aria-label",
-      done ? `Ver completados: ${exercise.name}` : `Ir a ${exercise.name}`
+      done
+        ? `Ver completados: ${exercise.name}. Mantener para reordenar`
+        : `Ir a ${exercise.name}. Mantener para reordenar`
     );
 
     const img = document.createElement("img");
     img.src = exercise.image || "";
     img.alt = "";
+    img.draggable = false;
     img.loading = "lazy";
     button.appendChild(img);
 
-    button.addEventListener("click", () => onRailClick(exercise));
+    button.addEventListener("click", () => {
+      const current = byId.get(exercise.id) || exercise;
+      onRailClick(current);
+    });
+    attachRailReorder(rail, button);
     rail.appendChild(button);
   });
 
@@ -452,7 +724,7 @@ function attachSwipe(card, exercise) {
   };
 
   card.addEventListener("pointerdown", (event) => {
-    if (event.target.closest(".card__weight")) return;
+    if (event.target.closest(".card__weight, .card__chip")) return;
     tracking = true;
     axis = null;
     startX = event.clientX;
@@ -506,6 +778,126 @@ function attachSwipe(card, exercise) {
   card.addEventListener("pointercancel", endPointer);
 }
 
+function createChipInput(exercise, field, value, ariaLabel, suffix = "") {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.inputMode = "numeric";
+  input.min = "1";
+  input.step = "1";
+  input.className = "card__chip-input";
+  input.setAttribute("aria-label", ariaLabel);
+  input.value = value ?? "";
+  input.enterKeyHint = "done";
+
+  const restore = () => {
+    const rx = getPrescription(exercise);
+    input.value = rx[field] ?? "";
+  };
+
+  const commit = () => {
+    const parsed = parsePositiveInt(input.value);
+    if (parsed == null) {
+      restore();
+      return;
+    }
+    input.value = String(parsed);
+    setPrescriptionField(exercise.id, field, parsed);
+  };
+
+  input.addEventListener("input", () => {
+    const parsed = parsePositiveInt(input.value);
+    if (parsed != null) setPrescriptionField(exercise.id, field, parsed);
+  });
+  input.addEventListener("change", commit);
+  input.addEventListener("blur", () => {
+    if (parsePositiveInt(input.value) == null) restore();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    }
+  });
+
+  if (!suffix) return input;
+
+  const wrap = document.createDocumentFragment();
+  wrap.appendChild(input);
+  const unit = document.createElement("span");
+  unit.className = "card__chip-unit";
+  unit.textContent = suffix;
+  wrap.appendChild(unit);
+  return wrap;
+}
+
+function createPrescriptionChip(exercise) {
+  const rx = getPrescription(exercise);
+  const chip = document.createElement("div");
+  chip.className = "card__chip";
+  chip.setAttribute("role", "group");
+  chip.setAttribute("aria-label", formatPrescription(exercise));
+
+  const addSep = () => {
+    const sep = document.createElement("span");
+    sep.className = "card__chip-sep";
+    sep.textContent = "×";
+    chip.appendChild(sep);
+  };
+
+  if (rx.durationMinutes != null) {
+    chip.appendChild(
+      createChipInput(
+        exercise,
+        "durationMinutes",
+        rx.durationMinutes,
+        "Minutos",
+        " min"
+      )
+    );
+    return chip;
+  }
+
+  if (rx.durationSeconds != null) {
+    if (rx.sets != null) {
+      chip.appendChild(
+        createChipInput(exercise, "sets", rx.sets, "Series")
+      );
+      addSep();
+    }
+    chip.appendChild(
+      createChipInput(
+        exercise,
+        "durationSeconds",
+        rx.durationSeconds,
+        "Segundos",
+        "s"
+      )
+    );
+    return chip;
+  }
+
+  if (rx.sets != null && rx.reps != null) {
+    chip.appendChild(createChipInput(exercise, "sets", rx.sets, "Series"));
+    addSep();
+    chip.appendChild(
+      createChipInput(exercise, "reps", rx.reps, "Repeticiones")
+    );
+    return chip;
+  }
+
+  if (rx.sets != null) {
+    chip.appendChild(
+      createChipInput(exercise, "sets", rx.sets, "Series", " series")
+    );
+    return chip;
+  }
+
+  const fallback = document.createElement("span");
+  fallback.textContent = "—";
+  chip.appendChild(fallback);
+  return chip;
+}
+
 function createCard(exercise) {
   const done = isDone(exercise.id);
   const weight = getWeightForTitle(exercise.name);
@@ -522,7 +914,6 @@ function createCard(exercise) {
     </div>
     <div class="card__media">
       <img alt="" loading="lazy" />
-      <span class="card__chip"></span>
       <label class="card__weight">
         <input
           type="number"
@@ -543,7 +934,11 @@ function createCard(exercise) {
   img.src = exercise.image || "";
   img.alt = exercise.name;
 
-  card.querySelector(".card__chip").textContent = formatPrescription(exercise);
+  const media = card.querySelector(".card__media");
+  media.insertBefore(
+    createPrescriptionChip(exercise),
+    card.querySelector(".card__weight")
+  );
 
   const weightInput = card.querySelector(".card__weight input");
   weightInput.value = weight;
@@ -570,8 +965,8 @@ function renderDay() {
     main.appendChild(banner);
   }
 
-  day.blocks.forEach((block) => {
-    const exercises = block.exercises.filter((exercise) => {
+  getOrderedBlockGroups(day).forEach(({ block, exercises: groupExercises }) => {
+    const exercises = groupExercises.filter((exercise) => {
       const done = isDone(exercise.id);
       return state.listMode === "done" ? done : !done;
     });
