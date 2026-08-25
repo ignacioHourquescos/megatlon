@@ -1,4 +1,4 @@
-const CACHE_NAME = "megatlon-v22";
+const CACHE_NAME = "megatlon-v23";
 
 const EXERCISE_IMAGES = [
   ...Array.from({ length: 9 }, (_, i) => `./images/exercises/d1-${String(i + 1).padStart(2, "0")}.png`),
@@ -14,6 +14,8 @@ const APP_SHELL = [
   "./app.js",
   "./data/routine.json",
   "./manifest.webmanifest",
+  "./fonts/plus-jakarta-sans-latin.woff2",
+  "./fonts/plus-jakarta-sans-latin-ext.woff2",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   ...EXERCISE_IMAGES,

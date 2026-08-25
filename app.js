@@ -31,6 +31,7 @@ function emptySession() {
     bodyWeight: [],
     railOrder: {},
     prescriptions: {},
+    customExercises: {},
   };
 }
 
@@ -45,6 +46,7 @@ function loadSession() {
       bodyWeight: Array.isArray(parsed.bodyWeight) ? parsed.bodyWeight : [],
       railOrder: asPlainObject(parsed.railOrder),
       prescriptions: asPlainObject(parsed.prescriptions),
+      customExercises: normalizeCustomExercises(parsed.customExercises),
     };
   } catch {
     return emptySession();
@@ -275,12 +277,89 @@ function restartWeek() {
   renderDay();
 }
 
+function getCustomExercises(dayId) {
+  return Array.isArray(state.session.customExercises[dayId])
+    ? state.session.customExercises[dayId]
+    : [];
+}
+
+function normalizeCustomExercises(value) {
+  const raw = asPlainObject(value);
+  const next = {};
+  Object.keys(raw).forEach((dayId) => {
+    if (!Array.isArray(raw[dayId])) return;
+    next[dayId] = raw[dayId]
+      .filter((item) => item && item.id && item.name)
+      .map((item) => ({
+        id: String(item.id),
+        name: String(item.name).trim(),
+        sets: parsePositiveInt(item.sets) ?? 3,
+        reps: parsePositiveInt(item.reps) ?? 10,
+        custom: true,
+      }));
+  });
+  return next;
+}
+
+function addCustomExercise(dayId, name, sets, reps) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return null;
+
+  const exercise = {
+    id: `custom-${dayId}-${Date.now()}`,
+    name: trimmed,
+    sets,
+    reps,
+    custom: true,
+  };
+
+  if (!Array.isArray(state.session.customExercises[dayId])) {
+    state.session.customExercises[dayId] = [];
+  }
+  state.session.customExercises[dayId].push(exercise);
+  saveSession();
+  return exercise;
+}
+
+function removeCustomExercise(dayId, exerciseId) {
+  state.session.customExercises[dayId] = getCustomExercises(dayId).filter(
+    (exercise) => exercise.id !== exerciseId
+  );
+  delete state.session.completed[exerciseId];
+  delete state.session.prescriptions[exerciseId];
+  if (Array.isArray(state.session.railOrder[dayId])) {
+    state.session.railOrder[dayId] = state.session.railOrder[dayId].filter(
+      (id) => id !== exerciseId
+    );
+  }
+  saveSession();
+}
+
+function getDayBlocks(day) {
+  const custom = getCustomExercises(day.id);
+  if (!custom.length) return day.blocks;
+  return [
+    ...day.blocks,
+    { type: "custom", title: "Agregados", exercises: custom },
+  ];
+}
+
+function exerciseInitials(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return "EX";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
 function getActiveDay() {
   return state.routine.days[state.activeDayIndex];
 }
 
 function getDayExercises(day) {
-  return day.blocks.flatMap((block) => block.exercises);
+  return getDayBlocks(day).flatMap((block) => block.exercises);
 }
 
 function applyExerciseOrder(exercises, dayId) {
@@ -357,7 +436,7 @@ function formatPrescription(exercise) {
 
 function getOrderedBlockGroups(day) {
   const blockByExerciseId = new Map();
-  day.blocks.forEach((block) => {
+  getDayBlocks(day).forEach((block) => {
     block.exercises.forEach((exercise) => {
       blockByExerciseId.set(exercise.id, block);
     });
@@ -422,7 +501,7 @@ function onRailClick(exercise) {
 }
 
 function getRailThumbs(rail) {
-  return [...rail.querySelectorAll(".rail__thumb:not(.rail__restart)")];
+  return [...rail.querySelectorAll(".rail__thumb:not(.rail__restart):not(.rail__add)")];
 }
 
 function moveRailThumbToIndex(rail, thumb, targetIndex) {
@@ -601,9 +680,9 @@ function renderRail() {
     const done = isDone(exercise.id);
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `rail__thumb${done ? " is-done" : ""}${
-      state.listMode === "done" && done ? " is-filter" : ""
-    }`;
+    button.className = `rail__thumb${exercise.image ? "" : " rail__thumb--text"}${
+      done ? " is-done" : ""
+    }${state.listMode === "done" && done ? " is-filter" : ""}`;
     button.dataset.exerciseId = exercise.id;
     button.title = `${exercise.name}. Mantener presionado para reordenar`;
     button.setAttribute(
@@ -613,12 +692,18 @@ function renderRail() {
         : `Ir a ${exercise.name}. Mantener para reordenar`
     );
 
-    const img = document.createElement("img");
-    img.src = exercise.image || "";
-    img.alt = "";
-    img.draggable = false;
-    img.loading = "lazy";
-    button.appendChild(img);
+    if (exercise.image) {
+      const img = document.createElement("img");
+      img.src = exercise.image;
+      img.alt = "";
+      img.draggable = false;
+      img.loading = "lazy";
+      button.appendChild(img);
+    } else {
+      const mark = document.createElement("span");
+      mark.textContent = exerciseInitials(exercise.name);
+      button.appendChild(mark);
+    }
 
     button.addEventListener("click", () => {
       const current = byId.get(exercise.id) || exercise;
@@ -627,6 +712,25 @@ function renderRail() {
     attachRailReorder(rail, button);
     rail.appendChild(button);
   });
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "rail__thumb rail__add";
+  addBtn.title = "Agregar ejercicio";
+  addBtn.setAttribute("aria-label", "Agregar ejercicio");
+  addBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+      <path
+        d="M12 5v14M5 12h14"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+      />
+    </svg>
+  `;
+  addBtn.addEventListener("click", openAddExerciseDialog);
+  rail.appendChild(addBtn);
 
   const restartBtn = document.createElement("button");
   restartBtn.type = "button";
@@ -724,7 +828,7 @@ function attachSwipe(card, exercise) {
   };
 
   card.addEventListener("pointerdown", (event) => {
-    if (event.target.closest(".card__weight, .card__chip")) return;
+    if (event.target.closest(".card__weight, .card__chip, .card__delete")) return;
     tracking = true;
     axis = null;
     startX = event.clientX;
@@ -930,11 +1034,31 @@ function createCard(exercise) {
 
   card.querySelector(".card__name").textContent = exercise.name;
 
-  const img = card.querySelector("img");
-  img.src = exercise.image || "";
-  img.alt = exercise.name;
+  if (exercise.custom) {
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "card__delete";
+    del.setAttribute("aria-label", `Eliminar ${exercise.name}`);
+    del.textContent = "×";
+    del.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!window.confirm(`¿Eliminar “${exercise.name}”?`)) return;
+      removeCustomExercise(getActiveDay().id, exercise.id);
+      render();
+    });
+    card.querySelector(".card__head").appendChild(del);
+  }
 
   const media = card.querySelector(".card__media");
+  const img = card.querySelector("img");
+  if (exercise.image) {
+    img.src = exercise.image;
+    img.alt = exercise.name;
+  } else {
+    img.replaceWith(createMediaPlaceholder(exercise));
+  }
+
   media.insertBefore(
     createPrescriptionChip(exercise),
     card.querySelector(".card__weight")
@@ -1002,9 +1126,62 @@ function renderDay() {
     empty.textContent =
       state.listMode === "done"
         ? "Todavía no hay ejercicios completados."
-        : "Todo listo. Tocá un thumb verde para ver los completados.";
+        : "Todo listo. Tocá un ícono marcado para ver los completados.";
     main.appendChild(empty);
   }
+}
+
+function createMediaPlaceholder(exercise) {
+  const el = document.createElement("div");
+  el.className = "card__placeholder";
+  el.setAttribute("aria-hidden", "true");
+  el.textContent = exerciseInitials(exercise.name);
+  return el;
+}
+
+function openAddExerciseDialog() {
+  const dialog = document.getElementById("add-exercise-dialog");
+  const form = document.getElementById("add-exercise-form");
+  const nameInput = document.getElementById("add-exercise-name");
+  const setsInput = document.getElementById("add-exercise-sets");
+  const repsInput = document.getElementById("add-exercise-reps");
+  if (!dialog || !form) return;
+
+  form.reset();
+  if (setsInput) setsInput.value = "3";
+  if (repsInput) repsInput.value = "10";
+  dialog.showModal();
+  requestAnimationFrame(() => nameInput?.focus());
+}
+
+function setupAddExerciseUi() {
+  const dialog = document.getElementById("add-exercise-dialog");
+  const form = document.getElementById("add-exercise-form");
+  const cancelBtn = document.getElementById("add-exercise-cancel");
+  if (!dialog || !form) return;
+
+  cancelBtn?.addEventListener("click", () => dialog.close());
+
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!state.routine) return;
+
+    const name = document.getElementById("add-exercise-name")?.value;
+    const sets = parsePositiveInt(document.getElementById("add-exercise-sets")?.value) ?? 3;
+    const reps = parsePositiveInt(document.getElementById("add-exercise-reps")?.value) ?? 10;
+    const created = addCustomExercise(getActiveDay().id, name, sets, reps);
+    if (!created) return;
+
+    dialog.close();
+    state.listMode = "active";
+    state.view = "routine";
+    render();
+    requestAnimationFrame(() => scrollToExercise(created.id));
+  });
 }
 
 function render() {
@@ -1030,6 +1207,7 @@ function render() {
 
 async function init() {
   setupBodyWeightUi();
+  setupAddExerciseUi();
 
   try {
     const response = await fetch("data/routine.json");

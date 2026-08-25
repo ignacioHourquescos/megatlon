@@ -6,13 +6,20 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#1f2933" />
+    <meta name="theme-color" content="#1d5c78" />
     <meta name="description" content="Rutina de entrenamiento interactiva" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <title>Megatlon Rutina</title>
-    <link rel="stylesheet" href="styles.css?v=22" />
+    <link
+      rel="preload"
+      href="fonts/plus-jakarta-sans-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="styles.css?v=23" />
   </head>
   <body>
     <div class="app" id="app" data-view="routine">
@@ -63,6 +70,58 @@
       <main id="day-content" class="day-content"></main>
     </div>
 
-    <script src="app.js?v=22" defer></script>
+    <dialog class="dialog" id="add-exercise-dialog" aria-labelledby="add-exercise-title">
+      <form class="dialog__form" id="add-exercise-form">
+        <h2 class="dialog__title" id="add-exercise-title">Agregar ejercicio</h2>
+        <label class="dialog__field">
+          <span>Nombre</span>
+          <input
+            id="add-exercise-name"
+            name="name"
+            type="text"
+            maxlength="80"
+            autocomplete="off"
+            required
+            placeholder="Ej: Press banca"
+          />
+        </label>
+        <div class="dialog__row">
+          <label class="dialog__field">
+            <span>Series</span>
+            <input
+              id="add-exercise-sets"
+              name="sets"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              step="1"
+              value="3"
+              required
+            />
+          </label>
+          <label class="dialog__field">
+            <span>Repeticiones</span>
+            <input
+              id="add-exercise-reps"
+              name="reps"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              step="1"
+              value="10"
+              required
+            />
+          </label>
+        </div>
+        <div class="dialog__actions">
+          <button type="button" class="dialog__cancel" id="add-exercise-cancel">
+            Cancelar
+          </button>
+          <button type="submit" class="dialog__submit">Agregar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js?v=23" defer></script>
   </body>
 </html>

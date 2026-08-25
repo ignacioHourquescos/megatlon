@@ -1,20 +1,44 @@
 :root {
-  --bg: #e8eaed;
+  --bg: #e4f4fa;
   --card: #ffffff;
-  --card-done: #d8f3dc;
-  --ink: #111418;
-  --muted: #5f6b76;
-  --line: #111418;
-  --soft-line: #c5cbd2;
-  --image-bg: #2b3036;
-  --accent: #1f7a45;
-  --input-bg: #f4f6f8;
+  --card-done: #d4eef8;
+  --ink: #14364a;
+  --muted: #5b7d8f;
+  --line: #1d5c78;
+  --soft-line: #c3dce6;
+  --image-bg: #1b4458;
+  --accent: #3eb6e0;
+  --accent-strong: #1f8fb8;
+  --done: #2aa0c9;
+  --input-bg: #f3fafd;
   --rail-size: 48px;
   --rail-gap: 8px;
   --gutter: 12px;
   --rail-col: calc(var(--rail-size) + var(--gutter));
   --divider: 3px;
-  --font: "Segoe UI", "Helvetica Neue", sans-serif;
+  --font: "Plus Jakarta Sans", "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+  src: url("fonts/plus-jakarta-sans-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+  src: url("fonts/plus-jakarta-sans-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 *,
@@ -192,15 +216,15 @@ body {
 }
 
 .rail__thumb.is-done {
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px #16a34a;
+  border-color: var(--done);
+  box-shadow: 0 0 0 3px var(--done);
 }
 
 .rail__thumb.is-done::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(22, 163, 74, 0.72);
+  background: rgba(42, 160, 201, 0.72);
   pointer-events: none;
 }
 
@@ -213,14 +237,38 @@ body {
   outline-offset: 1px;
 }
 
+.rail__thumb--text {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(165deg, #5ecdee 0%, #1d86b3 100%);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.rail__add,
 .rail__restart {
-  margin-top: auto;
+  margin-top: 0;
   display: grid;
   place-items: center;
   border-color: var(--line);
   background: #fff;
   color: var(--ink);
   overflow: visible;
+}
+
+.rail__add {
+  margin-top: auto;
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.rail__add:hover,
+.rail__add:focus-visible {
+  background: var(--accent);
+  color: #fff;
+  outline: none;
 }
 
 .rail__restart:hover,
@@ -230,6 +278,7 @@ body {
   outline: none;
 }
 
+.rail__add svg,
 .rail__restart svg {
   display: block;
 }
@@ -292,13 +341,13 @@ body {
 }
 
 .card.is-swipe-hint {
-  background: #e7f7eb;
-  border-color: #9ed0a8;
+  background: #e5f6fb;
+  border-color: #8ecce0;
 }
 
 .card.is-done {
   background: var(--card-done);
-  border-color: #9ed0a8;
+  border-color: #8ecce0;
 }
 
 .card.is-flash {
@@ -316,6 +365,7 @@ body {
 
 .card__name {
   margin: 0;
+  flex: 1 1 auto;
   color: #fff;
   font-size: 1.1rem;
   font-weight: 750;
@@ -324,9 +374,44 @@ body {
   word-break: break-word;
 }
 
+.card__delete {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.card__delete:hover,
+.card__delete:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+}
+
 .card__media {
   position: relative;
   background: var(--image-bg);
+}
+
+.card__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 220px;
+  background: linear-gradient(165deg, #4ebfe6 0%, #1b5f7c 100%);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 3.4rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
 }
 
 .card__media img {
@@ -440,7 +525,7 @@ body {
 }
 
 .card.is-done .card__head {
-  background: #14532d;
+  background: #156a86;
 }
 
 .card.is-done .card__name {
@@ -585,7 +670,7 @@ body {
 
 .weight-form__submit:hover,
 .weight-form__submit:focus-visible {
-  background: #000;
+  background: #0f2d3d;
   outline: none;
 }
 
@@ -665,13 +750,109 @@ body {
   line-height: 1.4;
 }
 
+.dialog {
+  width: min(92vw, 380px);
+  margin: auto;
+  border: 0;
+  padding: 0;
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 18px 50px rgba(20, 54, 74, 0.28);
+}
+
+.dialog::backdrop {
+  background: rgba(20, 54, 74, 0.46);
+}
+
+.dialog__form {
+  display: grid;
+  gap: 14px;
+  padding: 20px 18px 16px;
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.dialog__field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dialog__field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 12px 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.dialog__field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.dialog__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dialog__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.dialog__cancel,
+.dialog__submit {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 12px 10px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.dialog__cancel {
+  background: #fff;
+  color: var(--ink);
+}
+
+.dialog__submit {
+  background: var(--ink);
+  color: #fff;
+}
+
+.dialog__submit:hover,
+.dialog__submit:focus-visible {
+  background: #0f2d3d;
+  outline: none;
+}
+
 @media (min-width: 480px) {
   .app {
     --rail-size: 54px;
     padding: 0 12px;
   }
 
-  .card__media img {
+  .card__media img,
+  .card__placeholder {
     height: 260px;
   }
 
