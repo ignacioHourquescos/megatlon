@@ -745,6 +745,15 @@ body {
   grid-column: 1 / -1;
 }
 
+.meal-estimate {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .meal-list {
   list-style: none;
   margin: 0;
@@ -781,6 +790,14 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--muted);
+}
+
+.meal-list__kcal {
+  margin-left: auto;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--accent-strong);
+  white-space: nowrap;
 }
 
 .meal-list__food {
