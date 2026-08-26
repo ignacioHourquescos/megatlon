@@ -650,9 +650,141 @@ body {
   font-weight: 700;
 }
 
-.weight-form__field input:focus {
+.weight-form__field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 12px 28px 12px 10px;
+  background-color: #fff;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%),
+    linear-gradient(135deg, var(--ink) 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% - 3px),
+    calc(100% - 10px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  appearance: none;
+}
+
+.weight-form__field input:focus,
+.weight-form__field select:focus {
   outline: 2px solid var(--ink);
   outline-offset: -1px;
+}
+
+.weight-chart {
+  min-height: 176px;
+  padding: 8px 8px 4px;
+  background: #fff;
+  border: 1px solid var(--soft-line);
+}
+
+.weight-chart.is-empty {
+  display: grid;
+  place-items: center;
+  padding: 22px 16px;
+}
+
+.weight-chart__empty {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.weight-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.weight-chart__area {
+  fill: rgba(62, 182, 224, 0.18);
+}
+
+.weight-chart__line {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.weight-chart__grid {
+  stroke: var(--soft-line);
+  stroke-width: 1;
+}
+
+.weight-chart__axis {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font);
+}
+
+.weight-chart__dot {
+  fill: var(--ink);
+}
+
+.meal-form__food {
+  grid-column: 1 / -1;
+}
+
+.meal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.meal-list__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: start;
+  padding: 14px 0;
+  border-top: 1px solid var(--soft-line);
+}
+
+.meal-list__item:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.meal-list__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: baseline;
+}
+
+.meal-list__type {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.meal-list__date {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.meal-list__food {
+  grid-column: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.meal-list__item .weight-list__delete {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
 }
 
 .weight-form__submit {

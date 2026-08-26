@@ -3,11 +3,25 @@ const SWIPE_THRESHOLD = 72;
 const RAIL_LONG_PRESS_MS = 280;
 const RAIL_MOVE_CANCEL_PX = 10;
 
+const MEAL_TYPES = [
+  { id: "desayuno", label: "Desayuno" },
+  { id: "almuerzo", label: "Almuerzo" },
+  { id: "merienda", label: "Merienda" },
+  { id: "cena", label: "Cena" },
+  { id: "extra", label: "Extra" },
+];
+
+const TRACKER_TABS = [
+  { id: "weight", label: "Peso" },
+  { id: "meals", label: "Comidas" },
+];
+
 const state = {
   routine: null,
   activeDayIndex: 0,
   listMode: "active", // "active" | "done"
   view: "routine", // "routine" | "weight"
+  trackerTab: "weight", // "weight" | "meals"
   session: loadSession(),
 };
 
@@ -29,10 +43,39 @@ function emptySession() {
     completed: {},
     weightsByTitle: {},
     bodyWeight: [],
+    meals: [],
     railOrder: {},
     prescriptions: {},
     customExercises: {},
   };
+}
+
+function mealTypeLabel(id) {
+  return MEAL_TYPES.find((type) => type.id === id)?.label || "Comida";
+}
+
+function normalizeMeals(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const date = typeof entry.date === "string" ? entry.date : "";
+      const food = typeof entry.food === "string" ? entry.food.trim() : "";
+      if (!date || !food) return null;
+      const type = MEAL_TYPES.some((item) => item.id === entry.type)
+        ? entry.type
+        : "extra";
+      return {
+        id:
+          typeof entry.id === "string" && entry.id
+            ? entry.id
+            : `meal-${date}-${Math.random().toString(36).slice(2, 8)}`,
+        date,
+        type,
+        food,
+      };
+    })
+    .filter(Boolean);
 }
 
 function loadSession() {
@@ -44,6 +87,7 @@ function loadSession() {
       completed: parsed.completed || {},
       weightsByTitle: parsed.weightsByTitle || {},
       bodyWeight: Array.isArray(parsed.bodyWeight) ? parsed.bodyWeight : [],
+      meals: normalizeMeals(parsed.meals),
       railOrder: asPlainObject(parsed.railOrder),
       prescriptions: asPlainObject(parsed.prescriptions),
       customExercises: normalizeCustomExercises(parsed.customExercises),
@@ -102,9 +146,173 @@ function removeBodyWeight(date) {
   saveSession();
 }
 
+function getChartEntries() {
+  return [...state.session.bodyWeight]
+    .map((entry) => ({
+      date: entry.date,
+      weight: Number(String(entry.weight).replace(",", ".")),
+    }))
+    .filter((entry) => entry.date && Number.isFinite(entry.weight))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getMealEntries() {
+  return [...state.session.meals].sort((a, b) => {
+    const byDate = b.date.localeCompare(a.date);
+    if (byDate) return byDate;
+    const order = MEAL_TYPES.map((type) => type.id);
+    return order.indexOf(a.type) - order.indexOf(b.type);
+  });
+}
+
+function addMeal(date, type, food) {
+  const trimmed = String(food || "").trim();
+  if (!date || !trimmed) return;
+  const mealType = MEAL_TYPES.some((item) => item.id === type) ? type : "extra";
+  state.session.meals.push({
+    id: `meal-${Date.now()}`,
+    date,
+    type: mealType,
+    food: trimmed,
+  });
+  saveSession();
+}
+
+function removeMeal(id) {
+  state.session.meals = state.session.meals.filter((entry) => entry.id !== id);
+  saveSession();
+}
+
 function setView(view) {
   state.view = view;
   render();
+}
+
+function setTrackerTab(tab) {
+  state.trackerTab = tab;
+  render();
+}
+
+function svgEl(name, attrs = {}) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  Object.entries(attrs).forEach(([key, value]) => {
+    node.setAttribute(key, String(value));
+  });
+  return node;
+}
+
+function renderWeightChart() {
+  const host = document.getElementById("weight-chart");
+  if (!host) return;
+
+  const entries = getChartEntries();
+  host.innerHTML = "";
+  host.classList.toggle("is-empty", entries.length < 2);
+
+  if (entries.length < 2) {
+    const empty = document.createElement("p");
+    empty.className = "weight-chart__empty";
+    empty.textContent = entries.length
+      ? "Cargá otro peso para ver la evolución."
+      : "El gráfico aparece con al menos dos registros.";
+    host.appendChild(empty);
+    return;
+  }
+
+  const width = 320;
+  const height = 176;
+  const pad = { top: 18, right: 16, bottom: 30, left: 40 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const weights = entries.map((entry) => entry.weight);
+  const min = Math.min(...weights);
+  const max = Math.max(...weights);
+  const span = max - min || 1;
+  const yMin = min - span * 0.15;
+  const yMax = max + span * 0.15;
+  const ySpan = yMax - yMin;
+
+  const xAt = (index) =>
+    pad.left + (index / (entries.length - 1)) * innerW;
+  const yAt = (weight) =>
+    pad.top + (1 - (weight - yMin) / ySpan) * innerH;
+
+  const points = entries.map((entry, index) => [xAt(index), yAt(entry.weight)]);
+  const lineD = points
+    .map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`)
+    .join(" ");
+  const areaD = `${lineD} L${points[points.length - 1][0].toFixed(1)} ${(pad.top + innerH).toFixed(1)} L${points[0][0].toFixed(1)} ${(pad.top + innerH).toFixed(1)} Z`;
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label": `Evolución de peso de ${entries[0].weight} kg a ${entries[entries.length - 1].weight} kg`,
+  });
+
+  svg.appendChild(
+    svgEl("path", {
+      d: areaD,
+      class: "weight-chart__area",
+    })
+  );
+  svg.appendChild(
+    svgEl("path", {
+      d: lineD,
+      class: "weight-chart__line",
+    })
+  );
+
+  const yTicks =
+    max === min ? [max] : [max, Number(((min + max) / 2).toFixed(2)), min];
+  yTicks.forEach((tick) => {
+    const y = yAt(tick);
+    svg.appendChild(
+      svgEl("line", {
+        x1: pad.left,
+        x2: width - pad.right,
+        y1: y,
+        y2: y,
+        class: "weight-chart__grid",
+      })
+    );
+    const label = svgEl("text", {
+      x: pad.left - 8,
+      y: y + 4,
+      class: "weight-chart__axis",
+      "text-anchor": "end",
+    });
+    label.textContent = tick.toFixed(tick % 1 === 0 ? 0 : 1);
+    svg.appendChild(label);
+  });
+
+  const xIndexes = [0, Math.floor((entries.length - 1) / 2), entries.length - 1]
+    .filter((value, index, all) => all.indexOf(value) === index);
+
+  xIndexes.forEach((index) => {
+    const label = svgEl("text", {
+      x: xAt(index),
+      y: height - 8,
+      class: "weight-chart__axis weight-chart__axis--x",
+      "text-anchor":
+        index === 0 ? "start" : index === entries.length - 1 ? "end" : "middle",
+    });
+    const [, month, day] = entries[index].date.split("-");
+    label.textContent = `${day}/${month}`;
+    svg.appendChild(label);
+  });
+
+  points.forEach(([x, y], index) => {
+    svg.appendChild(
+      svgEl("circle", {
+        cx: x,
+        cy: y,
+        r: index === points.length - 1 ? 4.5 : 3.2,
+        class: "weight-chart__dot",
+      })
+    );
+  });
+
+  host.appendChild(svg);
 }
 
 function renderWeightList() {
@@ -150,6 +358,7 @@ function renderWeightList() {
     removeBtn.textContent = "×";
     removeBtn.addEventListener("click", () => {
       removeBodyWeight(entry.date);
+      renderWeightChart();
       renderWeightList();
     });
 
@@ -158,12 +367,57 @@ function renderWeightList() {
   });
 }
 
-function renderWeightView() {
-  const main = document.getElementById("day-content");
-  const rail = document.getElementById("exercise-rail");
-  if (!main) return;
+function renderMealList() {
+  const list = document.getElementById("meal-list");
+  const empty = document.getElementById("meal-empty");
+  if (!list || !empty) return;
 
-  if (rail) rail.innerHTML = "";
+  const entries = getMealEntries();
+  list.innerHTML = "";
+  empty.hidden = entries.length > 0;
+
+  entries.forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "meal-list__item";
+
+    const meta = document.createElement("div");
+    meta.className = "meal-list__meta";
+
+    const type = document.createElement("span");
+    type.className = "meal-list__type";
+    type.textContent = mealTypeLabel(entry.type);
+
+    const date = document.createElement("span");
+    date.className = "meal-list__date";
+    date.textContent = formatDisplayDate(entry.date);
+
+    meta.append(type, date);
+
+    const food = document.createElement("p");
+    food.className = "meal-list__food";
+    food.textContent = entry.food;
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "weight-list__delete";
+    removeBtn.setAttribute(
+      "aria-label",
+      `Eliminar ${mealTypeLabel(entry.type)} del ${formatDisplayDate(entry.date)}`
+    );
+    removeBtn.textContent = "×";
+    removeBtn.addEventListener("click", () => {
+      removeMeal(entry.id);
+      renderMealList();
+    });
+
+    item.append(meta, food, removeBtn);
+    list.appendChild(item);
+  });
+}
+
+function renderWeightPanel() {
+  const main = document.getElementById("day-content");
+  if (!main) return;
 
   main.innerHTML = `
     <div class="weight-view">
@@ -172,6 +426,8 @@ function renderWeightView() {
         <p class="weight-summary__value" id="weight-summary-value">—<span>kg</span></p>
         <p class="weight-summary__date" id="weight-summary-date">Sin registros todavía</p>
       </section>
+
+      <section class="weight-chart" id="weight-chart" aria-label="Gráfico de peso"></section>
 
       <form class="weight-form" id="weight-form">
         <label class="weight-form__field">
@@ -217,6 +473,7 @@ function renderWeightView() {
     if (!date || weight === "" || weight == null) return;
 
     upsertBodyWeight(date, weight);
+    renderWeightChart();
     renderWeightList();
     if (weightInput) {
       weightInput.value = "";
@@ -224,8 +481,91 @@ function renderWeightView() {
     }
   });
 
+  renderWeightChart();
   renderWeightList();
-  requestAnimationFrame(() => weightInput?.focus());
+}
+
+function renderMealsPanel() {
+  const main = document.getElementById("day-content");
+  if (!main) return;
+
+  const typeOptions = MEAL_TYPES.map(
+    (type) => `<option value="${type.id}">${type.label}</option>`
+  ).join("");
+
+  main.innerHTML = `
+    <div class="weight-view">
+      <form class="weight-form meal-form" id="meal-form">
+        <label class="weight-form__field">
+          <span>Fecha</span>
+          <input type="date" name="date" id="meal-date" required />
+        </label>
+        <label class="weight-form__field">
+          <span>Comida</span>
+          <select name="type" id="meal-type" required>
+            ${typeOptions}
+          </select>
+        </label>
+        <label class="weight-form__field meal-form__food">
+          <span>Qué comiste</span>
+          <input
+            type="text"
+            name="food"
+            id="meal-food"
+            maxlength="160"
+            autocomplete="off"
+            placeholder="Ej: pollo, arroz y ensalada"
+            required
+          />
+        </label>
+        <button type="submit" class="weight-form__submit">Agregar</button>
+      </form>
+
+      <section class="weight-history">
+        <h3 class="weight-history__title">Entradas</h3>
+        <ul class="meal-list" id="meal-list"></ul>
+        <p class="weight-empty" id="meal-empty" hidden>
+          Todavía no hay comidas. Cargá desayuno, almuerzo o lo que hayas comido.
+        </p>
+      </section>
+    </div>
+  `;
+
+  const dateInput = document.getElementById("meal-date");
+  const typeInput = document.getElementById("meal-type");
+  const foodInput = document.getElementById("meal-food");
+  const form = document.getElementById("meal-form");
+
+  if (dateInput) dateInput.value = todayIsoDate();
+
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const date = dateInput?.value;
+    const type = typeInput?.value;
+    const food = foodInput?.value;
+    if (!date || !food) return;
+
+    addMeal(date, type, food);
+    renderMealList();
+    if (foodInput) {
+      foodInput.value = "";
+      foodInput.focus();
+    }
+  });
+
+  renderMealList();
+  requestAnimationFrame(() => foodInput?.focus());
+}
+
+function renderTrackerView() {
+  const rail = document.getElementById("exercise-rail");
+  if (rail) rail.innerHTML = "";
+
+  if (state.trackerTab === "meals") {
+    renderMealsPanel();
+    return;
+  }
+  renderWeightPanel();
 }
 
 function setupBodyWeightUi() {
@@ -765,12 +1105,16 @@ function renderTabs() {
   nav.innerHTML = "";
 
   if (state.view === "weight") {
-    nav.setAttribute("aria-label", "Seguimiento de peso");
-    const title = document.createElement("div");
-    title.className = "view-title";
-    title.setAttribute("aria-current", "page");
-    title.textContent = "Peso corporal";
-    nav.appendChild(title);
+    nav.setAttribute("aria-label", "Peso y comidas");
+    TRACKER_TABS.forEach((tab) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tab";
+      button.textContent = tab.label;
+      button.setAttribute("aria-selected", String(tab.id === state.trackerTab));
+      button.addEventListener("click", () => setTrackerTab(tab.id));
+      nav.appendChild(button);
+    });
     return;
   }
 
@@ -1196,7 +1540,7 @@ function render() {
   renderTabs();
 
   if (onWeight) {
-    renderWeightView();
+    renderTrackerView();
     return;
   }
 
