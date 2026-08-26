@@ -17,6 +17,128 @@ const TRACKER_TABS = [
   { id: "steps", label: "Pasos" },
 ];
 
+const FOOD_STOPWORDS = new Set([
+  "de",
+  "del",
+  "con",
+  "y",
+  "e",
+  "la",
+  "el",
+  "los",
+  "las",
+  "un",
+  "una",
+  "uno",
+  "dos",
+  "tres",
+  "cuatro",
+  "porcion",
+  "porciones",
+  "grande",
+  "grandes",
+  "mediana",
+  "mediano",
+  "medianas",
+  "medianos",
+  "chica",
+  "chico",
+  "chicas",
+  "mas",
+  "otro",
+  "otra",
+]);
+
+const FOOD_TYPOS = [
+  ["salchica", "salchicha"],
+  ["echcolota", "chocolate"],
+  ["chocolata", "chocolate"],
+  ["milanesas", "milanesa"],
+];
+
+const FOOD_QTY = [
+  { keys: ["cuatro", "4"], n: 4 },
+  { keys: ["tres", "3"], n: 3 },
+  { keys: ["dos", "2"], n: 2 },
+  { keys: ["una", "un", "uno", "1"], n: 1 },
+];
+
+const FOOD_SIZE = [
+  { keys: ["grandes", "grande"], n: 1.35 },
+  { keys: ["medianas", "medianos", "mediana", "mediano"], n: 1 },
+  { keys: ["chicas", "chicos", "chica", "chico"], n: 0.7 },
+];
+
+const FOOD_DB = [
+  { name: "milanesa napolitana", keys: ["milanesa napolitana"], kcal: 380 },
+  { name: "milanesa", keys: ["milanesa"], kcal: 280 },
+  { name: "papas fritas", keys: ["papas fritas", "papa frita"], kcal: 320 },
+  { name: "muslo", keys: ["pata muslo", "muslo de pollo", "pata", "muslo"], kcal: 220 },
+  { name: "pechuga", keys: ["pechuga"], kcal: 180 },
+  { name: "pollo", keys: ["pollo"], kcal: 220 },
+  { name: "asado", keys: ["asado"], kcal: 350 },
+  { name: "bife", keys: ["bife", "bife de chorizo"], kcal: 280 },
+  { name: "carne", keys: ["carne"], kcal: 250 },
+  { name: "bondiola", keys: ["bondiola"], kcal: 280 },
+  { name: "matambre", keys: ["matambre"], kcal: 260 },
+  { name: "hamburguesa", keys: ["hamburguesa", "hamburguesas"], kcal: 350 },
+  { name: "empanada", keys: ["empanadas", "empanada"], kcal: 220 },
+  { name: "pizza", keys: ["pizza"], kcal: 280 },
+  { name: "tarta", keys: ["tarta"], kcal: 250 },
+  { name: "pescado", keys: ["pescado"], kcal: 190 },
+  { name: "merluza", keys: ["merluza"], kcal: 160 },
+  { name: "atún", keys: ["atun"], kcal: 130 },
+  { name: "huevo", keys: ["huevos", "huevo"], kcal: 78 },
+  { name: "omelette", keys: ["omelette", "omelet"], kcal: 180 },
+  { name: "jamón", keys: ["jamon"], kcal: 45 },
+  { name: "queso", keys: ["queso"], kcal: 90 },
+  { name: "salchicha", keys: ["salchichas", "salchicha"], kcal: 160 },
+  { name: "chorizo", keys: ["chorizo"], kcal: 290 },
+  { name: "morcilla", keys: ["morcilla"], kcal: 250 },
+  { name: "arroz", keys: ["arroz"], kcal: 200 },
+  { name: "fideos", keys: ["fideos", "pasta", "spaghettis", "spaghetti"], kcal: 250 },
+  { name: "lentejas", keys: ["lentejas", "lenteja"], kcal: 180 },
+  { name: "porotos", keys: ["porotos", "poroto"], kcal: 180 },
+  { name: "garbanzos", keys: ["garbanzos", "garbanzo"], kcal: 170 },
+  { name: "papas", keys: ["papas", "papa"], kcal: 150 },
+  { name: "puré", keys: ["pure"], kcal: 180 },
+  { name: "batata", keys: ["batata"], kcal: 130 },
+  { name: "choclo", keys: ["choclo"], kcal: 100 },
+  { name: "ensalada", keys: ["ensalada"], kcal: 70 },
+  { name: "verdura", keys: ["verduras", "verdura"], kcal: 50 },
+  { name: "tomate", keys: ["tomates", "tomate"], kcal: 22 },
+  { name: "sopa", keys: ["sopa"], kcal: 90 },
+  { name: "guiso", keys: ["guiso"], kcal: 320 },
+  { name: "locro", keys: ["locro"], kcal: 380 },
+  { name: "manzana", keys: ["manzanas", "manzana"], kcal: 95 },
+  { name: "banana", keys: ["bananas", "banana", "bananas"], kcal: 105 },
+  { name: "naranja", keys: ["naranjas", "naranja"], kcal: 62 },
+  { name: "pera", keys: ["peras", "pera"], kcal: 85 },
+  { name: "mandarina", keys: ["mandarinas", "mandarina"], kcal: 50 },
+  { name: "yogur", keys: ["yogurt", "yogur"], kcal: 120 },
+  { name: "leche", keys: ["leche"], kcal: 120 },
+  { name: "café con leche", keys: ["cafe con leche"], kcal: 60 },
+  { name: "café", keys: ["cafe"], kcal: 5 },
+  { name: "tostada", keys: ["tostadas", "tostada"], kcal: 80 },
+  { name: "pan", keys: ["pan"], kcal: 80 },
+  { name: "medialuna", keys: ["medialunas", "medialuna"], kcal: 240 },
+  { name: "factura", keys: ["facturas", "factura"], kcal: 250 },
+  { name: "avena", keys: ["avena"], kcal: 150 },
+  { name: "cereal", keys: ["cereal"], kcal: 150 },
+  { name: "galletita", keys: ["galletitas", "galletita"], kcal: 45 },
+  { name: "alfajor", keys: ["alfajores", "alfajor"], kcal: 250 },
+  { name: "chocolate", keys: ["coco de chocolate", "chocolate"], kcal: 160 },
+  { name: "helado", keys: ["helado"], kcal: 210 },
+  { name: "flan", keys: ["flan"], kcal: 180 },
+  { name: "dulce de leche", keys: ["dulce de leche"], kcal: 70 },
+  { name: "coco", keys: ["coco"], kcal: 70 },
+  { name: "gaseosa", keys: ["gaseosa", "coca", "sprite"], kcal: 140 },
+  { name: "jugo", keys: ["jugo"], kcal: 110 },
+  { name: "cerveza", keys: ["cerveza"], kcal: 150 },
+  { name: "vino", keys: ["vino"], kcal: 85 },
+  { name: "agua", keys: ["agua"], kcal: 0 },
+];
+
 const STEP_MIN_INTERVAL_MS = 300;
 const STEP_PEAK_DELTA = 1.15;
 
@@ -71,6 +193,147 @@ function mealTypeLabel(id) {
   return MEAL_TYPES.find((type) => type.id === id)?.label || "Comida";
 }
 
+function foldFoodText(text) {
+  let next = String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  FOOD_TYPOS.forEach(([from, to]) => {
+    next = next.split(from).join(to);
+  });
+  return next
+    .replace(/\bd\b/g, "de")
+    .replace(/[^a-z0-9,;\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isWordBoundary(text, start, end) {
+  const left = start === 0 || text[start - 1] === " " || text[start - 1] === "," || text[start - 1] === ";";
+  const right =
+    end >= text.length || text[end] === " " || text[end] === "," || text[end] === ";";
+  return left && right;
+}
+
+function lookupWordValue(pairs, text) {
+  const padded = ` ${text} `;
+  for (const { keys, n } of pairs) {
+    if (keys.some((key) => padded.includes(` ${key} `))) return n;
+  }
+  return null;
+}
+
+function quantityBefore(text, index) {
+  const left = ` ${text.slice(Math.max(0, index - 24), index).trim()} `;
+  const numbered = left.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s+$/);
+  if (numbered) {
+    const n = Number(numbered[1].replace(",", "."));
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  for (const { keys, n } of FOOD_QTY) {
+    if (keys.some((key) => left.endsWith(` ${key} `))) return n;
+  }
+  if (/\bporciones?\s+$/.test(left)) return 1;
+  return 1;
+}
+
+function sizeNear(text, start, end) {
+  const window = ` ${text.slice(Math.max(0, start - 16), Math.min(text.length, end + 16))} `;
+  return lookupWordValue(FOOD_SIZE, window.trim()) || 1;
+}
+
+function estimateFoodText(text) {
+  const folded = foldFoodText(text);
+  if (!folded) return { kcal: 0, items: [], unmatched: true };
+
+  const used = Array.from(folded, () => false);
+  const items = [];
+  const ranked = FOOD_DB.flatMap((food) =>
+    food.keys.map((key) => ({
+      name: food.name,
+      kcal: food.kcal,
+      key: foldFoodText(key),
+    }))
+  ).sort((a, b) => b.key.length - a.key.length);
+
+  ranked.forEach((food) => {
+    if (!food.key) return;
+    let from = 0;
+    while (from <= folded.length - food.key.length) {
+      const index = folded.indexOf(food.key, from);
+      if (index < 0) break;
+      const end = index + food.key.length;
+      const spanFree = used.slice(index, end).every((flag) => !flag);
+      if (spanFree && isWordBoundary(folded, index, end)) {
+        for (let i = index; i < end; i += 1) used[i] = true;
+        const qty = quantityBefore(folded, index);
+        const size = sizeNear(folded, index, end);
+        items.push({
+          name: food.name,
+          qty,
+          kcal: Math.round(food.kcal * qty * size),
+        });
+      }
+      from = index + food.key.length;
+    }
+  });
+
+  const leftover = [];
+  let token = "";
+  for (let i = 0; i <= folded.length; i += 1) {
+    const active = i < folded.length && !used[i] && /[a-z]/.test(folded[i]);
+    if (active) {
+      token += folded[i];
+    } else if (token) {
+      if (token.length > 2 && !FOOD_STOPWORDS.has(token)) leftover.push(token);
+      token = "";
+    }
+  }
+
+  const kcal = items.reduce((sum, item) => sum + item.kcal, 0);
+  return {
+    kcal,
+    items,
+    unmatched: items.length === 0,
+    partial: items.length > 0 && leftover.length > items.length,
+  };
+}
+
+function parseOptionalKcal(value) {
+  if (value == null || String(value).trim() === "") return null;
+  const n = Number(String(value).replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+
+function mealEnergy(entry) {
+  if (entry.kcal != null) {
+    return { kcal: entry.kcal, source: "manual", items: [], unmatched: false };
+  }
+  const estimated = estimateFoodText(entry.food);
+  return { ...estimated, source: "estimate" };
+}
+
+function formatKcal(value) {
+  return `${Math.round(value).toLocaleString("es-AR")} kcal`;
+}
+
+function mealsOnDate(date) {
+  return getMealEntries().filter((entry) => entry.date === date);
+}
+
+function dayMealEnergy(date) {
+  const meals = mealsOnDate(date);
+  let kcal = 0;
+  let unmatched = 0;
+  meals.forEach((entry) => {
+    const energy = mealEnergy(entry);
+    if (energy.unmatched) unmatched += 1;
+    else kcal += energy.kcal;
+  });
+  return { kcal, unmatched, count: meals.length };
+}
+
 function normalizeMeals(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -82,6 +345,7 @@ function normalizeMeals(value) {
       const type = MEAL_TYPES.some((item) => item.id === entry.type)
         ? entry.type
         : "extra";
+      const kcal = parseOptionalKcal(entry.kcal);
       return {
         id:
           typeof entry.id === "string" && entry.id
@@ -90,6 +354,7 @@ function normalizeMeals(value) {
         date,
         type,
         food,
+        ...(kcal != null ? { kcal } : {}),
       };
     })
     .filter(Boolean);
@@ -183,16 +448,19 @@ function getMealEntries() {
   });
 }
 
-function addMeal(date, type, food) {
+function addMeal(date, type, food, kcal) {
   const trimmed = String(food || "").trim();
   if (!date || !trimmed) return;
   const mealType = MEAL_TYPES.some((item) => item.id === type) ? type : "extra";
-  state.session.meals.push({
+  const next = {
     id: `meal-${Date.now()}`,
     date,
     type: mealType,
     food: trimmed,
-  });
+  };
+  const manual = parseOptionalKcal(kcal);
+  if (manual != null) next.kcal = manual;
+  state.session.meals.push(next);
   saveSession();
 }
 
@@ -660,6 +928,7 @@ function renderMealList() {
   const entries = getMealEntries();
   list.innerHTML = "";
   empty.hidden = entries.length > 0;
+  renderMealDaySummary();
 
   entries.forEach((entry) => {
     const item = document.createElement("li");
@@ -676,7 +945,16 @@ function renderMealList() {
     date.className = "meal-list__date";
     date.textContent = formatDisplayDate(entry.date);
 
-    meta.append(type, date);
+    const energy = mealEnergy(entry);
+    const kcal = document.createElement("span");
+    kcal.className = "meal-list__kcal";
+    kcal.textContent = energy.unmatched
+      ? "sin est."
+      : energy.source === "manual"
+        ? formatKcal(energy.kcal)
+        : `~${formatKcal(energy.kcal)}`;
+
+    meta.append(type, date, kcal);
 
     const food = document.createElement("p");
     food.className = "meal-list__food";
@@ -698,6 +976,48 @@ function renderMealList() {
     item.append(meta, food, removeBtn);
     list.appendChild(item);
   });
+}
+
+function renderMealDaySummary() {
+  const value = document.getElementById("meal-summary-value");
+  const dateEl = document.getElementById("meal-summary-date");
+  if (!value || !dateEl) return;
+
+  const date = document.getElementById("meal-date")?.value || todayIsoDate();
+  const day = dayMealEnergy(date);
+  if (!day.count) {
+    value.innerHTML = `—<span>kcal</span>`;
+    dateEl.textContent = "Sin comidas en este día";
+    return;
+  }
+  value.innerHTML = `${Math.round(day.kcal).toLocaleString("es-AR")}<span>kcal</span>`;
+  dateEl.textContent = day.unmatched
+    ? `${formatDisplayDate(date)} · estimado · ${day.unmatched} sin reconocer`
+    : `${formatDisplayDate(date)} · estimado`;
+}
+
+function updateMealEstimatePreview() {
+  const preview = document.getElementById("meal-estimate");
+  if (!preview) return;
+  const food = document.getElementById("meal-food")?.value;
+  const manual = parseOptionalKcal(document.getElementById("meal-kcal")?.value);
+  if (manual != null) {
+    preview.textContent = `${formatKcal(manual)} (manual)`;
+    return;
+  }
+  if (!String(food || "").trim()) {
+    preview.textContent = "La estimación aparece al escribir la comida.";
+    return;
+  }
+  const estimated = estimateFoodText(food);
+  if (estimated.unmatched) {
+    preview.textContent = "No se reconoció. Completá las kcal a mano.";
+    return;
+  }
+  const detail = estimated.items
+    .map((item) => (item.qty > 1 ? `${item.name} ×${item.qty}` : item.name))
+    .join(", ");
+  preview.textContent = `~${formatKcal(estimated.kcal)} · ${detail}`;
 }
 
 function renderWeightPanel() {
@@ -780,6 +1100,12 @@ function renderMealsPanel() {
 
   main.innerHTML = `
     <div class="weight-view">
+      <section class="weight-summary" aria-live="polite">
+        <p class="weight-summary__label">Calorías del día</p>
+        <p class="weight-summary__value" id="meal-summary-value">—<span>kcal</span></p>
+        <p class="weight-summary__date" id="meal-summary-date">Sin comidas en este día</p>
+      </section>
+
       <form class="weight-form meal-form" id="meal-form">
         <label class="weight-form__field">
           <span>Fecha</span>
@@ -797,12 +1123,25 @@ function renderMealsPanel() {
             type="text"
             name="food"
             id="meal-food"
-            maxlength="160"
+            maxlength="240"
             autocomplete="off"
-            placeholder="Ej: pollo, arroz y ensalada"
+            placeholder="Ej: dos milanesas, arroz y ensalada"
             required
           />
         </label>
+        <label class="weight-form__field">
+          <span>Kcal (opcional)</span>
+          <input
+            type="number"
+            name="kcal"
+            id="meal-kcal"
+            inputmode="numeric"
+            min="0"
+            step="1"
+            placeholder="auto"
+          />
+        </label>
+        <p class="meal-estimate" id="meal-estimate">La estimación aparece al escribir la comida.</p>
         <button type="submit" class="weight-form__submit">Agregar</button>
       </form>
 
@@ -819,9 +1158,13 @@ function renderMealsPanel() {
   const dateInput = document.getElementById("meal-date");
   const typeInput = document.getElementById("meal-type");
   const foodInput = document.getElementById("meal-food");
+  const kcalInput = document.getElementById("meal-kcal");
   const form = document.getElementById("meal-form");
 
   if (dateInput) dateInput.value = todayIsoDate();
+  dateInput?.addEventListener("change", renderMealDaySummary);
+  foodInput?.addEventListener("input", updateMealEstimatePreview);
+  kcalInput?.addEventListener("input", updateMealEstimatePreview);
 
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -830,15 +1173,18 @@ function renderMealsPanel() {
     const food = foodInput?.value;
     if (!date || !food) return;
 
-    addMeal(date, type, food);
+    addMeal(date, type, food, kcalInput?.value);
     renderMealList();
     if (foodInput) {
       foodInput.value = "";
       foodInput.focus();
     }
+    if (kcalInput) kcalInput.value = "";
+    updateMealEstimatePreview();
   });
 
   renderMealList();
+  updateMealEstimatePreview();
   requestAnimationFrame(() => foodInput?.focus());
 }
 
