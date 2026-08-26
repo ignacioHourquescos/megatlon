@@ -112,6 +112,11 @@ body {
   outline: none;
 }
 
+.profile-btn.is-counting {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(62, 182, 224, 0.35);
+}
+
 .profile-btn svg {
   display: block;
 }
@@ -594,9 +599,14 @@ body {
   color: rgba(255, 255, 255, 0.65);
 }
 
+.app[data-view="weight"] .tab {
+  font-size: 0.86rem;
+  padding: 12px 2px;
+}
+
 .weight-summary__value {
   margin: 0;
-  font-size: 3.4rem;
+  font-size: clamp(2.2rem, 11vw, 3.4rem);
   font-weight: 800;
   line-height: 0.95;
   letter-spacing: -0.03em;
@@ -804,6 +814,41 @@ body {
 .weight-form__submit:focus-visible {
   background: #0f2d3d;
   outline: none;
+}
+
+.steps-controls {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--soft-line);
+}
+
+.steps-toggle {
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 14px 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.steps-toggle.is-active,
+.steps-toggle:hover,
+.steps-toggle:focus-visible {
+  background: var(--ink);
+  color: #fff;
+  outline: none;
+}
+
+.steps-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .weight-history {

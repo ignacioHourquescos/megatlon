@@ -14,14 +14,30 @@ const MEAL_TYPES = [
 const TRACKER_TABS = [
   { id: "weight", label: "Peso" },
   { id: "meals", label: "Comidas" },
+  { id: "steps", label: "Pasos" },
 ];
+
+const STEP_MIN_INTERVAL_MS = 300;
+const STEP_PEAK_DELTA = 1.15;
+
+const pedometer = {
+  wantRunning: false,
+  listening: false,
+  filtered: 0,
+  lastPeak: false,
+  lastStepAt: 0,
+  gotSample: false,
+  sampleTimer: 0,
+  uiTimer: 0,
+  wakeLock: null,
+};
 
 const state = {
   routine: null,
   activeDayIndex: 0,
   listMode: "active", // "active" | "done"
   view: "routine", // "routine" | "weight"
-  trackerTab: "weight", // "weight" | "meals"
+  trackerTab: "weight", // "weight" | "meals" | "steps"
   session: loadSession(),
 };
 
@@ -44,6 +60,7 @@ function emptySession() {
     weightsByTitle: {},
     bodyWeight: [],
     meals: [],
+    steps: [],
     railOrder: {},
     prescriptions: {},
     customExercises: {},
@@ -88,6 +105,7 @@ function loadSession() {
       weightsByTitle: parsed.weightsByTitle || {},
       bodyWeight: Array.isArray(parsed.bodyWeight) ? parsed.bodyWeight : [],
       meals: normalizeMeals(parsed.meals),
+      steps: normalizeSteps(parsed.steps),
       railOrder: asPlainObject(parsed.railOrder),
       prescriptions: asPlainObject(parsed.prescriptions),
       customExercises: normalizeCustomExercises(parsed.customExercises),
@@ -183,6 +201,235 @@ function removeMeal(id) {
   saveSession();
 }
 
+function parseStepCount(value) {
+  const n = Number(String(value).replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+
+function normalizeSteps(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const date = typeof entry.date === "string" ? entry.date : "";
+      const steps = parseStepCount(entry.steps);
+      if (!date || steps == null) return null;
+      return { date, steps };
+    })
+    .filter(Boolean);
+}
+
+function getStepEntries() {
+  return [...state.session.steps].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function getStepsForDate(date) {
+  return (
+    state.session.steps.find((entry) => entry.date === date)?.steps ?? 0
+  );
+}
+
+function upsertSteps(date, steps) {
+  const value = parseStepCount(steps);
+  if (!date || value == null) return;
+
+  const existing = state.session.steps.findIndex((entry) => entry.date === date);
+  const next = { date, steps: value };
+  if (existing >= 0) {
+    state.session.steps[existing] = next;
+  } else {
+    state.session.steps.push(next);
+  }
+  saveSession();
+}
+
+function addTodaySteps(amount) {
+  const date = todayIsoDate();
+  upsertSteps(date, getStepsForDate(date) + amount);
+}
+
+function removeSteps(date) {
+  state.session.steps = state.session.steps.filter(
+    (entry) => entry.date !== date
+  );
+  saveSession();
+}
+
+function motionAvailable() {
+  return typeof window.DeviceMotionEvent !== "undefined";
+}
+
+function motionNeedsPermission() {
+  return (
+    typeof DeviceMotionEvent !== "undefined" &&
+    typeof DeviceMotionEvent.requestPermission === "function"
+  );
+}
+
+function stepMagnitude(event) {
+  const gravity = event.accelerationIncludingGravity;
+  if (gravity && gravity.x != null) {
+    return Math.hypot(gravity.x, gravity.y || 0, gravity.z || 0);
+  }
+  const acc = event.acceleration;
+  if (acc && acc.x != null) {
+    return Math.hypot(acc.x, acc.y || 0, acc.z || 0);
+  }
+  return null;
+}
+
+function onDeviceMotion(event) {
+  const mag = stepMagnitude(event);
+  if (mag == null) return;
+  pedometer.gotSample = true;
+
+  if (!pedometer.filtered) pedometer.filtered = mag;
+  pedometer.filtered = pedometer.filtered * 0.82 + mag * 0.18;
+  const delta = mag - pedometer.filtered;
+  const now = performance.now();
+  const isPeak = delta > STEP_PEAK_DELTA;
+  if (
+    isPeak &&
+    !pedometer.lastPeak &&
+    now - pedometer.lastStepAt > STEP_MIN_INTERVAL_MS
+  ) {
+    pedometer.lastStepAt = now;
+    addTodaySteps(1);
+    refreshStepsLiveUi();
+  }
+  pedometer.lastPeak = isPeak;
+}
+
+function attachMotion() {
+  if (pedometer.listening) return;
+  window.addEventListener("devicemotion", onDeviceMotion, { passive: true });
+  pedometer.listening = true;
+  pedometer.filtered = 0;
+  pedometer.lastPeak = false;
+  pedometer.gotSample = false;
+  window.clearTimeout(pedometer.sampleTimer);
+  pedometer.sampleTimer = window.setTimeout(() => {
+    if (pedometer.wantRunning && !pedometer.gotSample) {
+      stopPedometer(
+        "No se detecta el acelerómetro. En el celular hay que dar permiso; si no, cargá los pasos a mano."
+      );
+    }
+  }, 1800);
+}
+
+function detachMotion() {
+  if (!pedometer.listening) return;
+  window.removeEventListener("devicemotion", onDeviceMotion);
+  pedometer.listening = false;
+  window.clearTimeout(pedometer.sampleTimer);
+}
+
+async function requestWakeLock() {
+  try {
+    if (!("wakeLock" in navigator)) return;
+    pedometer.wakeLock = await navigator.wakeLock.request("screen");
+    pedometer.wakeLock.addEventListener("release", () => {
+      if (pedometer.wantRunning && !document.hidden) {
+        requestWakeLock();
+      }
+    });
+  } catch {
+    pedometer.wakeLock = null;
+  }
+}
+
+function releaseWakeLock() {
+  const lock = pedometer.wakeLock;
+  pedometer.wakeLock = null;
+  lock?.release?.().catch(() => {});
+}
+
+async function startPedometer() {
+  if (!motionAvailable()) {
+    setStepsHint(
+      "Este navegador no expone el sensor de movimiento. Cargá los pasos a mano."
+    );
+    return;
+  }
+
+  try {
+    if (motionNeedsPermission()) {
+      const result = await DeviceMotionEvent.requestPermission();
+      if (result !== "granted") {
+        setStepsHint("Hace falta permiso de movimiento para contar pasos.");
+        return;
+      }
+    }
+  } catch {
+    setStepsHint("No se pudo activar el sensor. Cargá los pasos a mano.");
+    return;
+  }
+
+  pedometer.wantRunning = true;
+  attachMotion();
+  await requestWakeLock();
+  setStepsHint("Contando con el teléfono. Dejá la app abierta.");
+  refreshStepsLiveUi();
+}
+
+function stopPedometer(message) {
+  pedometer.wantRunning = false;
+  detachMotion();
+  releaseWakeLock();
+  setStepsHint(message || "Pausado. El total del día queda guardado.");
+  refreshStepsLiveUi();
+}
+
+function setStepsHint(text) {
+  const hint = document.getElementById("steps-hint");
+  if (hint) hint.textContent = text;
+}
+
+function formatStepCount(value) {
+  return Number(value || 0).toLocaleString("es-AR");
+}
+
+function refreshStepsLiveUi() {
+  const today = todayIsoDate();
+  const steps = getStepsForDate(today);
+  const value = document.getElementById("steps-summary-value");
+  const date = document.getElementById("steps-summary-date");
+  const toggle = document.getElementById("steps-toggle");
+  const profileBtn = document.getElementById("profile-btn");
+
+  if (value) {
+    value.innerHTML = `${formatStepCount(steps)}<span>pasos</span>`;
+  }
+  if (date) date.textContent = formatDisplayDate(today);
+  if (toggle) {
+    toggle.textContent = pedometer.wantRunning ? "Pausar" : "Iniciar conteo";
+    toggle.setAttribute("aria-pressed", String(pedometer.wantRunning));
+    toggle.classList.toggle("is-active", pedometer.wantRunning);
+  }
+  profileBtn?.classList.toggle("is-counting", pedometer.wantRunning);
+
+  window.clearTimeout(pedometer.uiTimer);
+  pedometer.uiTimer = window.setTimeout(() => {
+    if (!document.getElementById("steps-list")) return;
+    renderStepsList();
+    renderStepsChart();
+  }, 700);
+}
+
+function setupPedometerUi() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      detachMotion();
+      releaseWakeLock();
+      return;
+    }
+    if (!pedometer.wantRunning) return;
+    attachMotion();
+    requestWakeLock();
+  });
+}
+
 function setView(view) {
   state.view = view;
   render();
@@ -201,32 +448,40 @@ function svgEl(name, attrs = {}) {
   return node;
 }
 
-function renderWeightChart() {
-  const host = document.getElementById("weight-chart");
+function formatChartTick(value, integer) {
+  if (integer) return Math.round(value).toLocaleString("es-AR");
+  return value % 1 === 0 ? String(Math.round(value)) : value.toFixed(1);
+}
+
+function renderTrendChart(host, entries, options = {}) {
   if (!host) return;
 
-  const entries = getChartEntries();
+  const {
+    emptyOne = "Cargá otro valor para ver la evolución.",
+    emptyNone = "El gráfico aparece con al menos dos registros.",
+    ariaLabel = "Evolución",
+    integer = false,
+  } = options;
+
   host.innerHTML = "";
   host.classList.toggle("is-empty", entries.length < 2);
 
   if (entries.length < 2) {
     const empty = document.createElement("p");
     empty.className = "weight-chart__empty";
-    empty.textContent = entries.length
-      ? "Cargá otro peso para ver la evolución."
-      : "El gráfico aparece con al menos dos registros.";
+    empty.textContent = entries.length ? emptyOne : emptyNone;
     host.appendChild(empty);
     return;
   }
 
   const width = 320;
   const height = 176;
-  const pad = { top: 18, right: 16, bottom: 30, left: 40 };
+  const pad = { top: 18, right: 16, bottom: 30, left: integer ? 52 : 40 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const weights = entries.map((entry) => entry.weight);
-  const min = Math.min(...weights);
-  const max = Math.max(...weights);
+  const values = entries.map((entry) => entry.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
   const span = max - min || 1;
   const yMin = min - span * 0.15;
   const yMax = max + span * 0.15;
@@ -234,10 +489,10 @@ function renderWeightChart() {
 
   const xAt = (index) =>
     pad.left + (index / (entries.length - 1)) * innerW;
-  const yAt = (weight) =>
-    pad.top + (1 - (weight - yMin) / ySpan) * innerH;
+  const yAt = (value) =>
+    pad.top + (1 - (value - yMin) / ySpan) * innerH;
 
-  const points = entries.map((entry, index) => [xAt(index), yAt(entry.weight)]);
+  const points = entries.map((entry, index) => [xAt(index), yAt(entry.value)]);
   const lineD = points
     .map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`)
     .join(" ");
@@ -246,7 +501,7 @@ function renderWeightChart() {
   const svg = svgEl("svg", {
     viewBox: `0 0 ${width} ${height}`,
     role: "img",
-    "aria-label": `Evolución de peso de ${entries[0].weight} kg a ${entries[entries.length - 1].weight} kg`,
+    "aria-label": ariaLabel,
   });
 
   svg.appendChild(
@@ -281,7 +536,7 @@ function renderWeightChart() {
       class: "weight-chart__axis",
       "text-anchor": "end",
     });
-    label.textContent = tick.toFixed(tick % 1 === 0 ? 0 : 1);
+    label.textContent = formatChartTick(tick, integer);
     svg.appendChild(label);
   });
 
@@ -313,6 +568,36 @@ function renderWeightChart() {
   });
 
   host.appendChild(svg);
+}
+
+function renderWeightChart() {
+  const host = document.getElementById("weight-chart");
+  const entries = getChartEntries().map((entry) => ({
+    date: entry.date,
+    value: entry.weight,
+  }));
+  renderTrendChart(host, entries, {
+    emptyOne: "Cargá otro peso para ver la evolución.",
+    emptyNone: "El gráfico aparece con al menos dos registros.",
+    ariaLabel: entries.length
+      ? `Evolución de peso de ${entries[0].value} kg a ${entries[entries.length - 1].value} kg`
+      : "Gráfico de peso",
+  });
+}
+
+function renderStepsChart() {
+  const host = document.getElementById("steps-chart");
+  const entries = [...getStepEntries()]
+    .reverse()
+    .map((entry) => ({ date: entry.date, value: entry.steps }));
+  renderTrendChart(host, entries, {
+    emptyOne: "Cargá otro día para ver la evolución.",
+    emptyNone: "El gráfico aparece con al menos dos días.",
+    ariaLabel: entries.length
+      ? `Evolución de pasos de ${entries[0].value} a ${entries[entries.length - 1].value}`
+      : "Gráfico de pasos",
+    integer: true,
+  });
 }
 
 function renderWeightList() {
@@ -557,12 +842,149 @@ function renderMealsPanel() {
   requestAnimationFrame(() => foodInput?.focus());
 }
 
+function renderStepsList() {
+  const list = document.getElementById("steps-list");
+  const empty = document.getElementById("steps-empty");
+  if (!list || !empty) return;
+
+  const entries = getStepEntries();
+  list.innerHTML = "";
+  empty.hidden = entries.length > 0;
+
+  entries.forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = "weight-list__item";
+
+    const date = document.createElement("span");
+    date.className = "weight-list__date";
+    date.textContent = formatDisplayDate(entry.date);
+
+    const steps = document.createElement("span");
+    steps.className = "weight-list__weight";
+    steps.textContent = `${formatStepCount(entry.steps)} pasos`;
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "weight-list__delete";
+    removeBtn.setAttribute(
+      "aria-label",
+      `Eliminar pasos del ${formatDisplayDate(entry.date)}`
+    );
+    removeBtn.textContent = "×";
+    removeBtn.addEventListener("click", () => {
+      removeSteps(entry.date);
+      renderStepsChart();
+      renderStepsList();
+      refreshStepsLiveUi();
+    });
+
+    item.append(date, steps, removeBtn);
+    list.appendChild(item);
+  });
+}
+
+function renderStepsPanel() {
+  const main = document.getElementById("day-content");
+  if (!main) return;
+
+  const today = todayIsoDate();
+  const todaySteps = getStepsForDate(today);
+  const running = pedometer.wantRunning;
+
+  main.innerHTML = `
+    <div class="weight-view">
+      <section class="weight-summary" aria-live="polite">
+        <p class="weight-summary__label">Hoy</p>
+        <p class="weight-summary__value" id="steps-summary-value">${formatStepCount(todaySteps)}<span>pasos</span></p>
+        <p class="weight-summary__date" id="steps-summary-date">${formatDisplayDate(today)}</p>
+      </section>
+
+      <div class="steps-controls">
+        <button
+          type="button"
+          class="steps-toggle${running ? " is-active" : ""}"
+          id="steps-toggle"
+          aria-pressed="${running}"
+        >${running ? "Pausar" : "Iniciar conteo"}</button>
+        <p class="steps-hint" id="steps-hint">${
+          running
+            ? "Contando con el teléfono. Dejá la app abierta."
+            : "Cuenta mientras la app está abierta. También podés guardar el total del día a mano."
+        }</p>
+      </div>
+
+      <section class="weight-chart" id="steps-chart" aria-label="Gráfico de pasos"></section>
+
+      <form class="weight-form" id="steps-form">
+        <label class="weight-form__field">
+          <span>Fecha</span>
+          <input type="date" name="date" id="steps-date" required />
+        </label>
+        <label class="weight-form__field">
+          <span>Pasos</span>
+          <input
+            type="number"
+            name="steps"
+            id="steps-value"
+            inputmode="numeric"
+            min="0"
+            step="1"
+            placeholder="8000"
+            required
+          />
+        </label>
+        <button type="submit" class="weight-form__submit">Guardar</button>
+      </form>
+
+      <section class="weight-history">
+        <h3 class="weight-history__title">Historial</h3>
+        <ul class="weight-list" id="steps-list"></ul>
+        <p class="weight-empty" id="steps-empty" hidden>
+          Todavía no hay pasos. Iniciá el conteo o cargá un día a mano.
+        </p>
+      </section>
+    </div>
+  `;
+
+  const dateInput = document.getElementById("steps-date");
+  const stepsInput = document.getElementById("steps-value");
+  const form = document.getElementById("steps-form");
+  const toggle = document.getElementById("steps-toggle");
+
+  if (dateInput) dateInput.value = today;
+  if (stepsInput && todaySteps) stepsInput.value = String(todaySteps);
+
+  toggle?.addEventListener("click", () => {
+    if (pedometer.wantRunning) stopPedometer();
+    else startPedometer();
+  });
+
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const date = dateInput?.value;
+    const steps = stepsInput?.value;
+    if (!date || steps === "" || steps == null) return;
+    upsertSteps(date, steps);
+    renderStepsChart();
+    renderStepsList();
+    refreshStepsLiveUi();
+    stepsInput?.blur();
+  });
+
+  renderStepsChart();
+  renderStepsList();
+}
+
 function renderTrackerView() {
   const rail = document.getElementById("exercise-rail");
   if (rail) rail.innerHTML = "";
 
   if (state.trackerTab === "meals") {
     renderMealsPanel();
+    return;
+  }
+  if (state.trackerTab === "steps") {
+    renderStepsPanel();
     return;
   }
   renderWeightPanel();
@@ -1535,6 +1957,7 @@ function render() {
 
   app?.setAttribute("data-view", state.view);
   profileBtn?.classList.toggle("is-active", onWeight);
+  profileBtn?.classList.toggle("is-counting", pedometer.wantRunning);
   profileBtn?.setAttribute("aria-pressed", String(onWeight));
 
   renderTabs();
@@ -1552,6 +1975,7 @@ function render() {
 async function init() {
   setupBodyWeightUi();
   setupAddExerciseUi();
+  setupPedometerUi();
 
   try {
     const response = await fetch("data/routine.json");
