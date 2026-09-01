@@ -2,6 +2,8 @@ const STORAGE_KEY = "megatlon-session-v2";
 const SWIPE_THRESHOLD = 72;
 const RAIL_LONG_PRESS_MS = 280;
 const RAIL_MOVE_CANCEL_PX = 10;
+const CARD_TIMER_HOLD_MS = 380;
+const CARD_TIMER_MOVE_CANCEL_PX = 12;
 
 const MEAL_TYPES = [
   { id: "desayuno", label: "Desayuno" },
@@ -1511,6 +1513,17 @@ function getPrescription(exercise) {
   };
 }
 
+function getTimerSeconds(exercise) {
+  const rx = getPrescription(exercise);
+  if (rx.durationSeconds != null) return rx.durationSeconds;
+  if (rx.durationMinutes != null) return rx.durationMinutes * 60;
+  return null;
+}
+
+function formatTimerSeconds(total) {
+  return String(total);
+}
+
 function setPrescriptionField(exerciseId, field, value) {
   const current = state.session.prescriptions[exerciseId] || {};
   state.session.prescriptions[exerciseId] = { ...current, [field]: value };
@@ -1909,11 +1922,121 @@ function attachSwipe(card, exercise) {
   let startY = 0;
   let tracking = false;
   let axis = null;
+  let holdTimer = 0;
+  let countdownTimer = 0;
+  let remaining = 0;
+  let totalSeconds = 0;
+  let timing = false;
+  let overlay = null;
+  let overlayFill = null;
+  let overlayValue = null;
+
+  const clearHold = () => {
+    if (!holdTimer) return;
+    window.clearTimeout(holdTimer);
+    holdTimer = 0;
+  };
+
+  const clearCountdown = () => {
+    if (!countdownTimer) return;
+    window.clearInterval(countdownTimer);
+    countdownTimer = 0;
+  };
 
   const resetTransform = () => {
     card.classList.remove("is-swiping");
     card.style.transform = "";
     card.style.opacity = "";
+  };
+
+  const ensureOverlay = () => {
+    if (overlay) return overlay;
+    const media = card.querySelector(".card__media");
+    if (!media) return null;
+
+    overlay = document.createElement("div");
+    overlay.className = "card__timer";
+    overlay.setAttribute("aria-live", "polite");
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <div class="card__timer-fill" aria-hidden="true"></div>
+      <p class="card__timer-value"></p>
+    `;
+    overlayFill = overlay.querySelector(".card__timer-fill");
+    overlayValue = overlay.querySelector(".card__timer-value");
+    media.appendChild(overlay);
+    return overlay;
+  };
+
+  const paintTimer = () => {
+    if (!overlay || !overlayFill || !overlayValue) return;
+    overlayValue.textContent = formatTimerSeconds(remaining);
+    const progress = totalSeconds > 0 ? remaining / totalSeconds : 0;
+    overlayFill.style.transform = `scaleY(${progress})`;
+  };
+
+  const stopTimer = () => {
+    clearCountdown();
+    timing = false;
+    remaining = 0;
+    totalSeconds = 0;
+    card.classList.remove("is-timing");
+    if (overlay) {
+      overlay.hidden = true;
+      overlayFill.style.transform = "scaleY(1)";
+    }
+  };
+
+  const finishTimer = () => {
+    clearCountdown();
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate([20, 40, 20]);
+    }
+    window.setTimeout(() => {
+      if (!timing) return;
+      stopTimer();
+    }, 320);
+  };
+
+  const tickTimer = () => {
+    if (!card.isConnected) {
+      stopTimer();
+      return;
+    }
+    remaining -= 1;
+    if (remaining <= 0) {
+      remaining = 0;
+      paintTimer();
+      finishTimer();
+      return;
+    }
+    paintTimer();
+  };
+
+  const startTimer = () => {
+    const seconds = getTimerSeconds(exercise);
+    if (seconds == null || timing) return;
+    if (!ensureOverlay()) return;
+
+    clearHold();
+    tracking = false;
+    axis = null;
+    resetTransform();
+    card.classList.remove("is-swipe-hint");
+
+    timing = true;
+    totalSeconds = seconds;
+    remaining = seconds;
+    card.classList.add("is-timing");
+    overlay.hidden = false;
+    paintTimer();
+
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate(18);
+    }
+
+    clearCountdown();
+    countdownTimer = window.setInterval(tickTimer, 1000);
   };
 
   const finishToggle = (direction) => {
@@ -1941,11 +2064,22 @@ function attachSwipe(card, exercise) {
 
   card.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".card__weight, .card__chip, .card__delete")) return;
+    if (timing) return;
+
     tracking = true;
     axis = null;
     startX = event.clientX;
     startY = event.clientY;
     card.classList.add("is-swiping");
+    clearHold();
+
+    if (getTimerSeconds(exercise) != null) {
+      holdTimer = window.setTimeout(() => {
+        holdTimer = 0;
+        startTimer();
+      }, CARD_TIMER_HOLD_MS);
+    }
+
     try {
       card.setPointerCapture(event.pointerId);
     } catch {
@@ -1954,21 +2088,26 @@ function attachSwipe(card, exercise) {
   });
 
   card.addEventListener("pointermove", (event) => {
-    if (!tracking) return;
+    if (!tracking || timing) return;
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
+    const distance = Math.hypot(dx, dy);
+
+    if (distance > CARD_TIMER_MOVE_CANCEL_PX) clearHold();
 
     if (axis === null) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       axis = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
       if (axis === "v") {
         tracking = false;
+        clearHold();
         resetTransform();
         return;
       }
     }
 
     if (axis !== "h") return;
+    clearHold();
     event.preventDefault();
     const drag = Math.max(-140, Math.min(140, dx));
     card.style.transform = `translateX(${drag}px)`;
@@ -1977,7 +2116,11 @@ function attachSwipe(card, exercise) {
   });
 
   const endPointer = (event) => {
-    if (!tracking) return;
+    clearHold();
+    if (!tracking || timing) {
+      tracking = false;
+      return;
+    }
     tracking = false;
     const dx = event.clientX - startX;
 
