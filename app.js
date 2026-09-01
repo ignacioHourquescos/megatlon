@@ -668,7 +668,7 @@ function refreshStepsLiveUi() {
   const value = document.getElementById("steps-summary-value");
   const date = document.getElementById("steps-summary-date");
   const toggle = document.getElementById("steps-toggle");
-  const profileBtn = document.getElementById("profile-btn");
+  const userBtn = document.getElementById("nav-user");
 
   if (value) {
     value.innerHTML = `${formatStepCount(steps)}<span>pasos</span>`;
@@ -679,7 +679,7 @@ function refreshStepsLiveUi() {
     toggle.setAttribute("aria-pressed", String(pedometer.wantRunning));
     toggle.classList.toggle("is-active", pedometer.wantRunning);
   }
-  profileBtn?.classList.toggle("is-counting", pedometer.wantRunning);
+  userBtn?.classList.toggle("is-counting", pedometer.wantRunning);
 
   window.clearTimeout(pedometer.uiTimer);
   pedometer.uiTimer = window.setTimeout(() => {
@@ -1383,15 +1383,16 @@ function renderTrackerView() {
   renderWeightPanel();
 }
 
-function setupBodyWeightUi() {
-  const openBtn = document.getElementById("profile-btn");
+function setupDockNav() {
+  const userBtn = document.getElementById("nav-user");
+  const routineBtn = document.getElementById("nav-routine");
 
-  openBtn?.addEventListener("click", () => {
-    if (state.view === "weight") {
-      setView("routine");
-      return;
-    }
-    setView("weight");
+  userBtn?.addEventListener("click", () => {
+    if (state.view !== "weight") setView("weight");
+  });
+
+  routineBtn?.addEventListener("click", () => {
+    if (state.view !== "routine") setView("routine");
   });
 }
 
@@ -2053,6 +2054,7 @@ function renderRail() {
 
 function renderTabs() {
   const nav = document.getElementById("day-tabs");
+  if (!nav) return;
   nav.innerHTML = "";
 
   if (state.view === "weight") {
@@ -2613,13 +2615,21 @@ function setupAddExerciseUi() {
 
 function render() {
   const app = document.getElementById("app");
-  const profileBtn = document.getElementById("profile-btn");
+  const userBtn = document.getElementById("nav-user");
+  const routineBtn = document.getElementById("nav-routine");
   const onWeight = state.view === "weight";
 
   app?.setAttribute("data-view", state.view);
-  profileBtn?.classList.toggle("is-active", onWeight);
-  profileBtn?.classList.toggle("is-counting", pedometer.wantRunning);
-  profileBtn?.setAttribute("aria-pressed", String(onWeight));
+  userBtn?.classList.toggle("is-active", onWeight);
+  userBtn?.classList.toggle("is-counting", pedometer.wantRunning);
+  routineBtn?.classList.toggle("is-active", !onWeight);
+  if (onWeight) {
+    userBtn?.setAttribute("aria-current", "page");
+    routineBtn?.removeAttribute("aria-current");
+  } else {
+    routineBtn?.setAttribute("aria-current", "page");
+    userBtn?.removeAttribute("aria-current");
+  }
 
   renderTabs();
 
@@ -2634,7 +2644,7 @@ function render() {
 }
 
 async function init() {
-  setupBodyWeightUi();
+  setupDockNav();
   setupAddExerciseUi();
   setupPedometerUi();
   attachScrollSpy();

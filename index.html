@@ -19,24 +19,26 @@
       type="font/woff2"
       crossorigin
     />
-    <link rel="stylesheet" href="styles.css?v=29" />
+    <link rel="stylesheet" href="styles.css?v=30" />
   </head>
   <body>
     <div class="app" id="app" data-view="routine">
-      <header class="topbar">
-        <div class="topbar__gutter">
-          <button
-            type="button"
-            class="profile-btn"
-            id="profile-btn"
-            aria-label="Peso, comidas y pasos"
-            title="Peso, comidas y pasos"
-            aria-pressed="false"
-          >
+      <nav
+        class="rail"
+        id="exercise-rail"
+        aria-label="Índice de ejercicios"
+      ></nav>
+
+      <main id="day-content" class="day-content"></main>
+
+      <nav class="dock" aria-label="Navegación">
+        <div class="tabs" id="day-tabs" aria-label="Días de rutina"></div>
+        <div class="dock__primary">
+          <button type="button" class="dock__btn" id="nav-user">
             <svg
               viewBox="0 0 24 24"
-              width="22"
-              height="22"
+              width="20"
+              height="20"
               aria-hidden="true"
               focusable="false"
             >
@@ -56,18 +58,28 @@
                 stroke-linecap="round"
               />
             </svg>
+            Usuario
+          </button>
+          <button type="button" class="dock__btn" id="nav-routine">
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M4 7.25h16M4 12h16M4 16.75h16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+            Rutina
           </button>
         </div>
-        <nav class="tabs" id="day-tabs" aria-label="Días de rutina"></nav>
-      </header>
-
-      <nav
-        class="rail"
-        id="exercise-rail"
-        aria-label="Índice de ejercicios"
-      ></nav>
-
-      <main id="day-content" class="day-content"></main>
+      </nav>
     </div>
 
     <dialog class="dialog" id="add-exercise-dialog" aria-labelledby="add-exercise-title">
@@ -122,6 +134,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=29" defer></script>
+    <script src="app.js?v=30" defer></script>
   </body>
 </html>
