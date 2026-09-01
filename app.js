@@ -4,6 +4,8 @@ const RAIL_LONG_PRESS_MS = 280;
 const RAIL_MOVE_CANCEL_PX = 10;
 const CARD_TIMER_HOLD_MS = 380;
 const CARD_TIMER_MOVE_CANCEL_PX = 12;
+const SCROLL_SPY_LOCK_MS = 750;
+const SCROLL_ANIM_MS = 450;
 
 const MEAL_TYPES = [
   { id: "desayuno", label: "Desayuno" },
@@ -723,6 +725,34 @@ function formatChartTick(value, integer) {
   return value % 1 === 0 ? String(Math.round(value)) : value.toFixed(1);
 }
 
+function isoDateToUtcMs(isoDate) {
+  const [y, m, d] = String(isoDate).split("-").map(Number);
+  if (!y || !m || !d) return NaN;
+  return Date.UTC(y, m - 1, d);
+}
+
+/** Catmull-Rom → cubic Bézier; lower tension = more elastic curve. */
+function smoothLinePath(points, tension = 4.5) {
+  if (points.length < 2) return "";
+  if (points.length === 2) {
+    return `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)} L${points[1][0].toFixed(1)} ${points[1][1].toFixed(1)}`;
+  }
+
+  let d = `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
+    const cp1x = p1[0] + (p2[0] - p0[0]) / tension;
+    const cp1y = p1[1] + (p2[1] - p0[1]) / tension;
+    const cp2x = p2[0] - (p3[0] - p1[0]) / tension;
+    const cp2y = p2[1] - (p3[1] - p1[1]) / tension;
+    d += ` C${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
 function renderTrendChart(host, entries, options = {}) {
   if (!host) return;
 
@@ -757,15 +787,17 @@ function renderTrendChart(host, entries, options = {}) {
   const yMax = max + span * 0.15;
   const ySpan = yMax - yMin;
 
-  const xAt = (index) =>
-    pad.left + (index / (entries.length - 1)) * innerW;
+  const times = entries.map((entry) => isoDateToUtcMs(entry.date));
+  const tMin = times[0];
+  const tMax = times[times.length - 1];
+  const tSpan = tMax - tMin || 1;
+
+  const xAt = (index) => pad.left + ((times[index] - tMin) / tSpan) * innerW;
   const yAt = (value) =>
     pad.top + (1 - (value - yMin) / ySpan) * innerH;
 
   const points = entries.map((entry, index) => [xAt(index), yAt(entry.value)]);
-  const lineD = points
-    .map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`)
-    .join(" ");
+  const lineD = smoothLinePath(points);
   const areaD = `${lineD} L${points[points.length - 1][0].toFixed(1)} ${(pad.top + innerH).toFixed(1)} L${points[0][0].toFixed(1)} ${(pad.top + innerH).toFixed(1)} Z`;
 
   const svg = svgEl("svg", {
@@ -810,8 +842,19 @@ function renderTrendChart(host, entries, options = {}) {
     svg.appendChild(label);
   });
 
-  const xIndexes = [0, Math.floor((entries.length - 1) / 2), entries.length - 1]
-    .filter((value, index, all) => all.indexOf(value) === index);
+  const midTime = tMin + tSpan / 2;
+  let midIndex = 0;
+  let midDist = Infinity;
+  times.forEach((time, index) => {
+    const dist = Math.abs(time - midTime);
+    if (dist < midDist) {
+      midDist = dist;
+      midIndex = index;
+    }
+  });
+  const xIndexes = [0, midIndex, entries.length - 1].filter(
+    (value, index, all) => all.indexOf(value) === index
+  );
 
   xIndexes.forEach((index) => {
     const label = svgEl("text", {
@@ -1027,16 +1070,26 @@ function renderWeightPanel() {
   if (!main) return;
 
   main.innerHTML = `
-    <div class="weight-view">
-      <section class="weight-summary" aria-live="polite">
-        <p class="weight-summary__label">Último peso</p>
-        <p class="weight-summary__value" id="weight-summary-value">—<span>kg</span></p>
-        <p class="weight-summary__date" id="weight-summary-date">Sin registros todavía</p>
-      </section>
+    <div class="weight-view weight-view--docked">
+      <div class="weight-view__scroll">
+        <section class="weight-summary" aria-live="polite">
+          <p class="weight-summary__label">Último peso</p>
+          <p class="weight-summary__value" id="weight-summary-value">—<span>kg</span></p>
+          <p class="weight-summary__date" id="weight-summary-date">Sin registros todavía</p>
+        </section>
 
-      <section class="weight-chart" id="weight-chart" aria-label="Gráfico de peso"></section>
+        <section class="weight-chart" id="weight-chart" aria-label="Gráfico de peso"></section>
 
-      <form class="weight-form" id="weight-form">
+        <section class="weight-history">
+          <h3 class="weight-history__title">Historial</h3>
+          <ul class="weight-list" id="weight-list"></ul>
+          <p class="weight-empty" id="weight-empty" hidden>
+            Todavía no hay registros. Podés cargar fechas pasadas.
+          </p>
+        </section>
+      </div>
+
+      <form class="weight-form weight-form--dock" id="weight-form">
         <label class="weight-form__field">
           <span>Fecha</span>
           <input type="date" name="date" id="weight-date" required />
@@ -1056,14 +1109,6 @@ function renderWeightPanel() {
         </label>
         <button type="submit" class="weight-form__submit">Agregar</button>
       </form>
-
-      <section class="weight-history">
-        <h3 class="weight-history__title">Historial</h3>
-        <ul class="weight-list" id="weight-list"></ul>
-        <p class="weight-empty" id="weight-empty" hidden>
-          Todavía no hay registros. Podés cargar fechas pasadas.
-        </p>
-      </section>
     </div>
   `;
 
@@ -1577,48 +1622,173 @@ function getOrderedBlockGroups(day) {
   return groups;
 }
 
+let scrollSpyRaf = 0;
+let scrollSpyLockToken = 0;
+let scrollSpyLockedUntil = 0;
+let scrollAnimFrame = 0;
+
+function ensureRailThumbVisible(thumb) {
+  const rail = document.getElementById("exercise-rail");
+  if (!rail || !thumb) return;
+
+  const railRect = rail.getBoundingClientRect();
+  const thumbRect = thumb.getBoundingClientRect();
+  const pad = 8;
+
+  if (thumbRect.top < railRect.top + pad) {
+    rail.scrollTop += thumbRect.top - railRect.top - pad;
+  } else if (thumbRect.bottom > railRect.bottom - pad) {
+    rail.scrollTop += thumbRect.bottom - railRect.bottom + pad;
+  }
+}
+
+function setActiveRailThumb(exerciseId, { ensureVisible = false } = {}) {
+  if (!exerciseId) return;
+
+  const current = document.querySelector(".rail__thumb.is-active");
+  if (current?.dataset.exerciseId === exerciseId) {
+    if (ensureVisible) ensureRailThumbVisible(current);
+    return;
+  }
+
+  document
+    .querySelectorAll(".rail__thumb.is-active")
+    .forEach((el) => el.classList.remove("is-active"));
+
+  const thumb = document.querySelector(
+    `.rail__thumb[data-exercise-id="${exerciseId}"]`
+  );
+  if (!thumb) return;
+
+  thumb.classList.add("is-active");
+  if (ensureVisible) ensureRailThumbVisible(thumb);
+}
+
+function updateScrollSpy() {
+  if (state.view === "weight") return;
+  if (performance.now() < scrollSpyLockedUntil) return;
+
+  const main = document.getElementById("day-content");
+  if (!main) return;
+
+  const cards = [...main.querySelectorAll(".card[id]")];
+  if (!cards.length) {
+    document
+      .querySelectorAll(".rail__thumb.is-active")
+      .forEach((el) => el.classList.remove("is-active"));
+    return;
+  }
+
+  const mainRect = main.getBoundingClientRect();
+  const marker = mainRect.top + Math.min(96, mainRect.height * 0.28);
+  let activeId = cards[0].id;
+
+  for (const card of cards) {
+    const rect = card.getBoundingClientRect();
+    if (rect.top <= marker) activeId = card.id;
+    else break;
+  }
+
+  if (main.scrollTop + main.clientHeight >= main.scrollHeight - 8) {
+    activeId = cards[cards.length - 1].id;
+  }
+
+  setActiveRailThumb(activeId, { ensureVisible: true });
+}
+
+function scheduleScrollSpy() {
+  if (scrollSpyRaf) return;
+  scrollSpyRaf = window.requestAnimationFrame(() => {
+    scrollSpyRaf = 0;
+    updateScrollSpy();
+  });
+}
+
+function lockScrollSpy(ms = SCROLL_SPY_LOCK_MS) {
+  scrollSpyLockToken += 1;
+  const token = scrollSpyLockToken;
+  scrollSpyLockedUntil = performance.now() + ms;
+  window.setTimeout(() => {
+    if (token !== scrollSpyLockToken) return;
+    scrollSpyLockedUntil = 0;
+    updateScrollSpy();
+  }, ms);
+}
+
+function attachScrollSpy() {
+  const main = document.getElementById("day-content");
+  if (!main || main.dataset.scrollSpyAttached === "1") return;
+  main.dataset.scrollSpyAttached = "1";
+  main.addEventListener("scroll", scheduleScrollSpy, { passive: true });
+}
+
+function cancelScrollAnimation() {
+  if (!scrollAnimFrame) return;
+  window.cancelAnimationFrame(scrollAnimFrame);
+  scrollAnimFrame = 0;
+}
+
+function animateScrollTo(container, top, duration = SCROLL_ANIM_MS) {
+  cancelScrollAnimation();
+
+  const from = container.scrollTop;
+  const distance = top - from;
+  if (Math.abs(distance) < 2) return;
+
+  const prevBehavior = container.style.scrollBehavior;
+  container.style.scrollBehavior = "auto";
+  const start = performance.now();
+
+  const step = (now) => {
+    const progress = Math.min(1, (now - start) / duration);
+    const eased = 1 - (1 - progress) ** 3;
+    container.scrollTop = from + distance * eased;
+    if (progress < 1) {
+      scrollAnimFrame = window.requestAnimationFrame(step);
+      return;
+    }
+    scrollAnimFrame = 0;
+    container.style.scrollBehavior = prevBehavior;
+  };
+
+  scrollAnimFrame = window.requestAnimationFrame(step);
+}
+
 function scrollToExercise(exerciseId) {
   const card = document.getElementById(exerciseId);
   const main = document.getElementById("day-content");
   if (!card || !main) return;
 
   document
-    .querySelectorAll(".rail__thumb.is-active")
-    .forEach((el) => el.classList.remove("is-active"));
-  document
     .querySelectorAll(".card.is-flash")
     .forEach((el) => el.classList.remove("is-flash"));
 
-  const thumb = document.querySelector(
-    `.rail__thumb[data-exercise-id="${exerciseId}"]`
-  );
-  if (thumb) thumb.classList.add("is-active");
+  setActiveRailThumb(exerciseId, { ensureVisible: true });
+  lockScrollSpy(SCROLL_ANIM_MS + 80);
 
   const mainRect = main.getBoundingClientRect();
   const cardRect = card.getBoundingClientRect();
   const top = Math.max(0, main.scrollTop + (cardRect.top - mainRect.top) - 8);
 
-  main.style.scrollBehavior = "smooth";
-  main.scrollTo({ top, behavior: "smooth" });
+  animateScrollTo(main, top);
   card.classList.add("is-flash");
   window.setTimeout(() => card.classList.remove("is-flash"), 700);
 }
 
 function onRailClick(exercise) {
-  const done = isDone(exercise.id);
+  const nextMode = isDone(exercise.id) ? "done" : "active";
 
-  if (done) {
-    state.listMode = "done";
+  if (state.listMode !== nextMode) {
+    state.listMode = nextMode;
     renderDay();
     renderRail();
-    requestAnimationFrame(() => scrollToExercise(exercise.id));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToExercise(exercise.id));
+    });
     return;
   }
 
-  state.listMode = "active";
-  renderDay();
-  renderRail();
-  requestAnimationFrame(() => scrollToExercise(exercise.id));
+  scrollToExercise(exercise.id);
 }
 
 function getRailThumbs(rail) {
@@ -2384,6 +2554,8 @@ function renderDay() {
         : "Todo listo. Tocá un ícono marcado para ver los completados.";
     main.appendChild(empty);
   }
+
+  requestAnimationFrame(updateScrollSpy);
 }
 
 function createMediaPlaceholder(exercise) {
@@ -2465,6 +2637,7 @@ async function init() {
   setupBodyWeightUi();
   setupAddExerciseUi();
   setupPedometerUi();
+  attachScrollSpy();
 
   try {
     const response = await fetch("data/routine.json");
