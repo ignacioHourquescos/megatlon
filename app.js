@@ -162,9 +162,25 @@ const state = {
   routine: null,
   activeDayIndex: 0,
   listMode: "active", // "active" | "done"
-  view: "routine", // "routine" | "weight"
+  view: "routine", // "routine" | "weight" | "meditation"
   trackerTab: "weight", // "weight" | "meals" | "steps"
   session: loadSession(),
+};
+
+const STRETCH_HOLD_MS = 15000;
+const STRETCH_REST_MS = 5000;
+const STRETCH_RING_R = 86;
+const STRETCH_RING_LEN = 2 * Math.PI * STRETCH_RING_R;
+
+const stretchTimer = {
+  running: false,
+  started: false,
+  phase: "hold",
+  remainingMs: STRETCH_HOLD_MS,
+  phaseEndsAt: 0,
+  cycle: 0,
+  raf: 0,
+  ctx: null,
 };
 
 function asPlainObject(value) {
@@ -597,12 +613,16 @@ function detachMotion() {
   window.clearTimeout(pedometer.sampleTimer);
 }
 
+function wantsWakeLock() {
+  return pedometer.wantRunning || stretchTimer.running;
+}
+
 async function requestWakeLock() {
   try {
     if (!("wakeLock" in navigator)) return;
     pedometer.wakeLock = await navigator.wakeLock.request("screen");
     pedometer.wakeLock.addEventListener("release", () => {
-      if (pedometer.wantRunning && !document.hidden) {
+      if (wantsWakeLock() && !document.hidden) {
         requestWakeLock();
       }
     });
@@ -611,7 +631,8 @@ async function requestWakeLock() {
   }
 }
 
-function releaseWakeLock() {
+function releaseWakeLock(force = false) {
+  if (!force && wantsWakeLock()) return;
   const lock = pedometer.wakeLock;
   pedometer.wakeLock = null;
   lock?.release?.().catch(() => {});
@@ -668,7 +689,7 @@ function refreshStepsLiveUi() {
   const value = document.getElementById("steps-summary-value");
   const date = document.getElementById("steps-summary-date");
   const toggle = document.getElementById("steps-toggle");
-  const userBtn = document.getElementById("nav-user");
+  const navUser = document.getElementById("nav-user");
 
   if (value) {
     value.innerHTML = `${formatStepCount(steps)}<span>pasos</span>`;
@@ -679,7 +700,7 @@ function refreshStepsLiveUi() {
     toggle.setAttribute("aria-pressed", String(pedometer.wantRunning));
     toggle.classList.toggle("is-active", pedometer.wantRunning);
   }
-  userBtn?.classList.toggle("is-counting", pedometer.wantRunning);
+  navUser?.classList.toggle("is-counting", pedometer.wantRunning);
 
   window.clearTimeout(pedometer.uiTimer);
   pedometer.uiTimer = window.setTimeout(() => {
@@ -693,16 +714,233 @@ function setupPedometerUi() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       detachMotion();
-      releaseWakeLock();
+      pauseStretchTimer();
+      releaseWakeLock(true);
       return;
     }
-    if (!pedometer.wantRunning) return;
-    attachMotion();
-    requestWakeLock();
+    if (pedometer.wantRunning) attachMotion();
+    if (wantsWakeLock()) requestWakeLock();
   });
 }
 
+function stretchPhaseMs(phase = stretchTimer.phase) {
+  return phase === "rest" ? STRETCH_REST_MS : STRETCH_HOLD_MS;
+}
+
+function stretchRemainingMs() {
+  if (stretchTimer.running) {
+    return Math.max(0, stretchTimer.phaseEndsAt - Date.now());
+  }
+  return stretchTimer.remainingMs;
+}
+
+function ensureStretchAudio() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!stretchTimer.ctx) stretchTimer.ctx = new AudioCtx();
+  return stretchTimer.ctx;
+}
+
+function playStretchBeep(kind = "start") {
+  const ctx = ensureStretchAudio();
+  if (!ctx) return;
+
+  if (ctx.state === "suspended") {
+    ctx.resume().catch(() => {});
+  }
+
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const end = kind === "end";
+  osc.type = end ? "triangle" : "sine";
+  osc.frequency.setValueAtTime(end ? 196 : 880, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(end ? 0.32 : 0.2, now + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + (end ? 0.55 : 0.22));
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + (end ? 0.58 : 0.24));
+}
+
+function advanceStretchPhase() {
+  if (stretchTimer.phase === "hold") {
+    playStretchBeep("end");
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate([40, 30, 140]);
+    }
+    stretchTimer.cycle += 1;
+    stretchTimer.phase = "rest";
+  } else {
+    stretchTimer.phase = "hold";
+    playStretchBeep("start");
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate(24);
+    }
+  }
+  stretchTimer.remainingMs = stretchPhaseMs();
+  stretchTimer.phaseEndsAt = Date.now() + stretchTimer.remainingMs;
+}
+
+function syncStretchPhases() {
+  let guard = 0;
+  while (stretchTimer.running && Date.now() >= stretchTimer.phaseEndsAt && guard < 40) {
+    advanceStretchPhase();
+    guard += 1;
+  }
+}
+
+function paintStretchTimer() {
+  const root = document.getElementById("meditation-view");
+  const secondsEl = document.getElementById("meditation-seconds");
+  const phaseEl = document.getElementById("meditation-phase");
+  const metaEl = document.getElementById("meditation-meta");
+  const progressEl = document.getElementById("meditation-progress");
+  const toggleEl = document.getElementById("meditation-toggle");
+  const navMeditation = document.getElementById("nav-meditation");
+  if (!root) {
+    navMeditation?.classList.toggle("is-timing", stretchTimer.running);
+    return;
+  }
+
+  const remaining = stretchRemainingMs();
+  const total = stretchPhaseMs();
+  const seconds = Math.max(1, Math.ceil(remaining / 1000));
+  const shown = remaining <= 0 ? 0 : seconds;
+  const progress = total > 0 ? remaining / total : 0;
+
+  root.classList.toggle("is-rest", stretchTimer.phase === "rest");
+  root.classList.toggle("is-started", stretchTimer.started);
+  if (secondsEl) secondsEl.textContent = String(shown);
+  if (phaseEl) {
+    phaseEl.textContent =
+      stretchTimer.phase === "rest" ? "Cambiá de posición" : "Elongá esta posición";
+  }
+  if (metaEl) metaEl.textContent =
+    stretchTimer.cycle === 0
+      ? "Posición 1"
+      : stretchTimer.phase === "rest"
+        ? `Listo · ${stretchTimer.cycle}`
+        : `Posición ${stretchTimer.cycle + 1}`;
+  progressEl?.setAttribute(
+    "stroke-dashoffset",
+    String(((1 - progress) * STRETCH_RING_LEN).toFixed(2))
+  );
+  if (toggleEl) toggleEl.textContent = stretchTimer.running ? "Pausar" : stretchTimer.started ? "Seguir" : "Iniciar";
+  navMeditation?.classList.toggle("is-timing", stretchTimer.running);
+}
+
+function stretchTick() {
+  if (!stretchTimer.running) return;
+  syncStretchPhases();
+  paintStretchTimer();
+  stretchTimer.raf = window.requestAnimationFrame(stretchTick);
+}
+
+function startStretchTimer() {
+  const startingHold =
+    stretchTimer.phase === "hold" &&
+    stretchTimer.remainingMs >= STRETCH_HOLD_MS - 50;
+  ensureStretchAudio()?.resume?.().catch(() => {});
+  stretchTimer.running = true;
+  stretchTimer.started = true;
+  stretchTimer.phaseEndsAt = Date.now() + stretchTimer.remainingMs;
+  if (startingHold) {
+    playStretchBeep("start");
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate(24);
+    }
+  }
+  requestWakeLock();
+  window.cancelAnimationFrame(stretchTimer.raf);
+  stretchTimer.raf = window.requestAnimationFrame(stretchTick);
+  paintStretchTimer();
+}
+
+function pauseStretchTimer() {
+  if (stretchTimer.running) {
+    stretchTimer.remainingMs = stretchRemainingMs();
+  }
+  stretchTimer.running = false;
+  window.cancelAnimationFrame(stretchTimer.raf);
+  stretchTimer.raf = 0;
+  releaseWakeLock();
+  paintStretchTimer();
+}
+
+function resetStretchTimer() {
+  stretchTimer.running = false;
+  stretchTimer.started = false;
+  stretchTimer.phase = "hold";
+  stretchTimer.remainingMs = STRETCH_HOLD_MS;
+  stretchTimer.phaseEndsAt = 0;
+  stretchTimer.cycle = 0;
+  window.cancelAnimationFrame(stretchTimer.raf);
+  stretchTimer.raf = 0;
+  releaseWakeLock();
+  paintStretchTimer();
+}
+
+function toggleStretchTimer() {
+  if (stretchTimer.running) {
+    pauseStretchTimer();
+    return;
+  }
+  startStretchTimer();
+}
+
+function renderMeditationView() {
+  const rail = document.getElementById("exercise-rail");
+  const main = document.getElementById("day-content");
+  if (rail) rail.innerHTML = "";
+  if (!main) return;
+
+  main.innerHTML = `
+    <section class="meditation" id="meditation-view">
+      <div class="meditation__stage">
+        <svg class="meditation__dial" viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="meditation__track" cx="100" cy="100" r="${STRETCH_RING_R}"></circle>
+          <circle
+            class="meditation__progress"
+            id="meditation-progress"
+            cx="100"
+            cy="100"
+            r="${STRETCH_RING_R}"
+            stroke-dasharray="${STRETCH_RING_LEN.toFixed(2)}"
+            stroke-dashoffset="0"
+            transform="rotate(-90 100 100)"
+          ></circle>
+        </svg>
+        <div class="meditation__readout">
+          <p class="meditation__seconds" id="meditation-seconds" aria-live="polite">15</p>
+          <p class="meditation__phase" id="meditation-phase">Elongá esta posición</p>
+        </div>
+      </div>
+      <p class="meditation__meta" id="meditation-meta">Posición 1</p>
+      <p class="meditation__hint">
+        15 segundos en cada postura. Beep al empezar, beep grave al terminar y 5 segundos para cambiar.
+      </p>
+      <div class="meditation__actions">
+        <button type="button" class="meditation__btn meditation__start" id="meditation-toggle">
+          Iniciar
+        </button>
+        <button type="button" class="meditation__btn meditation__reset" id="meditation-reset">
+          Reiniciar
+        </button>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("meditation-toggle")?.addEventListener("click", toggleStretchTimer);
+  document.getElementById("meditation-reset")?.addEventListener("click", resetStretchTimer);
+  paintStretchTimer();
+}
+
 function setView(view) {
+  if (state.view === "meditation" && view !== "meditation") {
+    pauseStretchTimer();
+  }
   state.view = view;
   render();
 }
@@ -731,24 +969,100 @@ function isoDateToUtcMs(isoDate) {
   return Date.UTC(y, m - 1, d);
 }
 
-/** Catmull-Rom → cubic Bézier; lower tension = more elastic curve. */
-function smoothLinePath(points, tension = 4.5) {
-  if (points.length < 2) return "";
-  if (points.length === 2) {
-    return `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)} L${points[1][0].toFixed(1)} ${points[1][1].toFixed(1)}`;
+function chartCoord(value) {
+  return value.toFixed(1);
+}
+
+/** Even out clustered dates without losing calendar order. */
+function spacedChartX(times, left, width, minGap = 16) {
+  const count = times.length;
+  if (count === 1) return [left];
+
+  const tMin = times[0];
+  const tSpan = times[count - 1] - tMin || 1;
+  const xs = times.map((time, index) => {
+    const byTime = left + ((time - tMin) / tSpan) * width;
+    const byIndex = left + (index / (count - 1)) * width;
+    return byTime * 0.62 + byIndex * 0.38;
+  });
+
+  for (let i = 1; i < count; i += 1) {
+    if (xs[i] < xs[i - 1] + minGap) xs[i] = xs[i - 1] + minGap;
   }
 
-  let d = `M${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+  const span = xs[count - 1] - xs[0] || 1;
+  return xs.map((x) => left + ((x - xs[0]) / span) * width);
+}
+
+function pickChartXIndexes(xs) {
+  const last = xs.length - 1;
+  if (last <= 0) return [0];
+
+  const minPx = 46;
+  const indexes = [0];
+  if (last >= 2) {
+    const midX = (xs[0] + xs[last]) / 2;
+    let mid = 1;
+    let best = Infinity;
+    for (let i = 1; i < last; i += 1) {
+      const dist = Math.abs(xs[i] - midX);
+      if (dist < best) {
+        best = dist;
+        mid = i;
+      }
+    }
+    if (xs[mid] - xs[0] >= minPx && xs[last] - xs[mid] >= minPx) {
+      indexes.push(mid);
+    }
+  }
+  if (xs[last] - xs[indexes[indexes.length - 1]] >= minPx) indexes.push(last);
+  else if (indexes[indexes.length - 1] !== last) indexes[indexes.length - 1] = last;
+  return indexes;
+}
+
+function chartDistAlpha(a, b, alpha) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  return Math.pow(dx * dx + dy * dy, alpha / 2);
+}
+
+function clampChartHandle(y, fromY, toY) {
+  const lo = Math.min(fromY, toY);
+  const hi = Math.max(fromY, toY);
+  const slack = Math.max(6, Math.abs(toY - fromY) * 0.18);
+  return Math.min(hi + slack, Math.max(lo - slack, y));
+}
+
+/** Centripetal Catmull–Rom → cubic Bézier. Soft curve, almost no hooks. */
+function smoothLinePath(points) {
+  if (points.length < 2) return "";
+  if (points.length === 2) {
+    return `M${chartCoord(points[0][0])} ${chartCoord(points[0][1])} L${chartCoord(points[1][0])} ${chartCoord(points[1][1])}`;
+  }
+
+  const alpha = 0.5;
+  let d = `M${chartCoord(points[0][0])} ${chartCoord(points[0][1])}`;
   for (let i = 0; i < points.length - 1; i += 1) {
     const p0 = points[i - 1] || points[i];
     const p1 = points[i];
     const p2 = points[i + 1];
     const p3 = points[i + 2] || p2;
-    const cp1x = p1[0] + (p2[0] - p0[0]) / tension;
-    const cp1y = p1[1] + (p2[1] - p0[1]) / tension;
-    const cp2x = p2[0] - (p3[0] - p1[0]) / tension;
-    const cp2y = p2[1] - (p3[1] - p1[1]) / tension;
-    d += ` C${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+    const d1 = chartDistAlpha(p0, p1, alpha) || 1;
+    const d2 = chartDistAlpha(p1, p2, alpha) || 1;
+    const d3 = chartDistAlpha(p2, p3, alpha) || 1;
+    const cp1x = p1[0] + ((p2[0] - p0[0]) * d2) / (3 * (d1 + d2));
+    const cp1y = clampChartHandle(
+      p1[1] + ((p2[1] - p0[1]) * d2) / (3 * (d1 + d2)),
+      p1[1],
+      p2[1]
+    );
+    const cp2x = p2[0] - ((p3[0] - p1[0]) * d2) / (3 * (d2 + d3));
+    const cp2y = clampChartHandle(
+      p2[1] - ((p3[1] - p1[1]) * d2) / (3 * (d2 + d3)),
+      p1[1],
+      p2[1]
+    );
+    d += ` C${chartCoord(cp1x)} ${chartCoord(cp1y)}, ${chartCoord(cp2x)} ${chartCoord(cp2y)}, ${chartCoord(p2[0])} ${chartCoord(p2[1])}`;
   }
   return d;
 }
@@ -783,22 +1097,18 @@ function renderTrendChart(host, entries, options = {}) {
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  const yMin = min - span * 0.15;
-  const yMax = max + span * 0.15;
+  const yMin = min - span * 0.22;
+  const yMax = max + span * 0.22;
   const ySpan = yMax - yMin;
 
   const times = entries.map((entry) => isoDateToUtcMs(entry.date));
-  const tMin = times[0];
-  const tMax = times[times.length - 1];
-  const tSpan = tMax - tMin || 1;
-
-  const xAt = (index) => pad.left + ((times[index] - tMin) / tSpan) * innerW;
+  const xs = spacedChartX(times, pad.left, innerW);
   const yAt = (value) =>
     pad.top + (1 - (value - yMin) / ySpan) * innerH;
 
-  const points = entries.map((entry, index) => [xAt(index), yAt(entry.value)]);
+  const points = entries.map((entry, index) => [xs[index], yAt(entry.value)]);
   const lineD = smoothLinePath(points);
-  const areaD = `${lineD} L${points[points.length - 1][0].toFixed(1)} ${(pad.top + innerH).toFixed(1)} L${points[0][0].toFixed(1)} ${(pad.top + innerH).toFixed(1)} Z`;
+  const areaD = `${lineD} L${chartCoord(points[points.length - 1][0])} ${chartCoord(pad.top + innerH)} L${chartCoord(points[0][0])} ${chartCoord(pad.top + innerH)} Z`;
 
   const svg = svgEl("svg", {
     viewBox: `0 0 ${width} ${height}`,
@@ -842,23 +1152,9 @@ function renderTrendChart(host, entries, options = {}) {
     svg.appendChild(label);
   });
 
-  const midTime = tMin + tSpan / 2;
-  let midIndex = 0;
-  let midDist = Infinity;
-  times.forEach((time, index) => {
-    const dist = Math.abs(time - midTime);
-    if (dist < midDist) {
-      midDist = dist;
-      midIndex = index;
-    }
-  });
-  const xIndexes = [0, midIndex, entries.length - 1].filter(
-    (value, index, all) => all.indexOf(value) === index
-  );
-
-  xIndexes.forEach((index) => {
+  pickChartXIndexes(xs).forEach((index) => {
     const label = svgEl("text", {
-      x: xAt(index),
+      x: xs[index],
       y: height - 8,
       class: "weight-chart__axis weight-chart__axis--x",
       "text-anchor":
@@ -1383,16 +1679,15 @@ function renderTrackerView() {
   renderWeightPanel();
 }
 
-function setupDockNav() {
-  const userBtn = document.getElementById("nav-user");
-  const routineBtn = document.getElementById("nav-routine");
-
-  userBtn?.addEventListener("click", () => {
-    if (state.view !== "weight") setView("weight");
+function setupBodyWeightUi() {
+  document.getElementById("nav-routine")?.addEventListener("click", () => {
+    setView("routine");
   });
-
-  routineBtn?.addEventListener("click", () => {
-    if (state.view !== "routine") setView("routine");
+  document.getElementById("nav-meditation")?.addEventListener("click", () => {
+    setView("meditation");
+  });
+  document.getElementById("nav-user")?.addEventListener("click", () => {
+    setView("weight");
   });
 }
 
@@ -2054,8 +2349,12 @@ function renderRail() {
 
 function renderTabs() {
   const nav = document.getElementById("day-tabs");
-  if (!nav) return;
   nav.innerHTML = "";
+
+  if (state.view === "meditation") {
+    nav.setAttribute("aria-label", "Elongación");
+    return;
+  }
 
   if (state.view === "weight") {
     nav.setAttribute("aria-label", "Peso y comidas");
@@ -2615,26 +2914,33 @@ function setupAddExerciseUi() {
 
 function render() {
   const app = document.getElementById("app");
-  const userBtn = document.getElementById("nav-user");
-  const routineBtn = document.getElementById("nav-routine");
-  const onWeight = state.view === "weight";
+  const navRoutine = document.getElementById("nav-routine");
+  const navMeditation = document.getElementById("nav-meditation");
+  const navUser = document.getElementById("nav-user");
+  const view = state.view;
 
-  app?.setAttribute("data-view", state.view);
-  userBtn?.classList.toggle("is-active", onWeight);
-  userBtn?.classList.toggle("is-counting", pedometer.wantRunning);
-  routineBtn?.classList.toggle("is-active", !onWeight);
-  if (onWeight) {
-    userBtn?.setAttribute("aria-current", "page");
-    routineBtn?.removeAttribute("aria-current");
-  } else {
-    routineBtn?.setAttribute("aria-current", "page");
-    userBtn?.removeAttribute("aria-current");
-  }
+  app?.setAttribute("data-view", view);
+  navRoutine?.classList.toggle("is-active", view === "routine");
+  navMeditation?.classList.toggle("is-active", view === "meditation");
+  navMeditation?.classList.toggle("is-timing", stretchTimer.running);
+  navUser?.classList.toggle("is-active", view === "weight");
+  navUser?.classList.toggle("is-counting", pedometer.wantRunning);
+
+  navRoutine?.removeAttribute("aria-current");
+  navMeditation?.removeAttribute("aria-current");
+  navUser?.removeAttribute("aria-current");
+  if (view === "routine") navRoutine?.setAttribute("aria-current", "page");
+  if (view === "meditation") navMeditation?.setAttribute("aria-current", "page");
+  if (view === "weight") navUser?.setAttribute("aria-current", "page");
 
   renderTabs();
 
-  if (onWeight) {
+  if (view === "weight") {
     renderTrackerView();
+    return;
+  }
+  if (view === "meditation") {
+    renderMeditationView();
     return;
   }
 
@@ -2644,7 +2950,7 @@ function render() {
 }
 
 async function init() {
-  setupDockNav();
+  setupBodyWeightUi();
   setupAddExerciseUi();
   setupPedometerUi();
   attachScrollSpy();
