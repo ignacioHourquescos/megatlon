@@ -92,7 +92,7 @@ body {
 
 .dock__primary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   padding: 0 4px calc(10px + env(safe-area-inset-bottom, 0px));
 }
@@ -101,15 +101,15 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 0;
-  padding: 14px 8px;
+  padding: 12px 4px;
   background: #fff;
   color: var(--ink);
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 750;
   cursor: pointer;
 }
@@ -607,15 +607,18 @@ body {
   border: 0;
 }
 
-.app[data-view="weight"] {
+.app[data-view="weight"],
+.app[data-view="biometric"] {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.app[data-view="weight"] .rail {
+.app[data-view="weight"] .rail,
+.app[data-view="biometric"] .rail {
   display: none !important;
 }
 
-.app[data-view="weight"] .day-content {
+.app[data-view="weight"] .day-content,
+.app[data-view="biometric"] .day-content {
   grid-column: 1 / -1;
   grid-row: 1;
   padding: 0;
@@ -1111,6 +1114,437 @@ body {
 .dialog__submit:focus-visible {
   background: #0f2d3d;
   outline: none;
+}
+
+.bio-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
+  padding: 14px 14px 28px;
+  background: var(--bg);
+}
+
+.bio-hero {
+  padding: 22px 18px 18px;
+  background: linear-gradient(160deg, #1d5c78 0%, #14364a 100%);
+  color: #fff;
+}
+
+.bio-hero__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.bio-hero__label {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.bio-hero__score {
+  margin: 0;
+  font-size: clamp(2.6rem, 12vw, 3.6rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.bio-hero__score span {
+  margin-left: 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.bio-hero__meta {
+  text-align: right;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.bio-hero__meta p {
+  margin: 0;
+}
+
+.bio-hero__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.bio-hero__facts div {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.bio-hero__facts dt {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.bio-hero__facts dd {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.bio-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.bio-kpi {
+  padding: 14px 12px;
+  background: #fff;
+  border: 1px solid var(--soft-line);
+}
+
+.bio-kpi__label {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bio-kpi__value {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.bio-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bio-card {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--soft-line);
+}
+
+.bio-card__title {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bio-card__copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.bio-metrics {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+
+.bio-metrics__row {
+  display: grid;
+  gap: 8px;
+}
+
+.bio-metrics__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.bio-metrics__head dt {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.bio-metrics__head dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.bio-metrics__range {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.bio-range {
+  display: grid;
+  gap: 6px;
+}
+
+.bio-range__labels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+.bio-range__track {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  height: 10px;
+  overflow: hidden;
+  background: #edf4f8;
+}
+
+.bio-range__zone--low {
+  background: #d7ebf5;
+}
+
+.bio-range__zone--normal {
+  background: #b8e4f4;
+}
+
+.bio-range__zone--high {
+  background: #f2d4dc;
+}
+
+.bio-range__marker {
+  position: absolute;
+  top: -3px;
+  width: 4px;
+  height: 16px;
+  margin-left: -2px;
+  background: var(--ink);
+  border-radius: 1px;
+  transform: translateX(-50%);
+}
+
+.bio-range__marker--low {
+  background: var(--accent-strong);
+}
+
+.bio-range__marker--high {
+  background: #c94b67;
+}
+
+.bio-bars {
+  display: grid;
+  gap: 16px;
+}
+
+.bio-bars__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.bio-bars__head h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.bio-bars__head p {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.bio-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.bio-control div {
+  padding: 12px;
+  background: var(--input-bg);
+}
+
+.bio-control dt {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bio-control dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.bio-indicators {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.bio-indicator {
+  padding: 12px 8px;
+  background: var(--input-bg);
+  text-align: center;
+}
+
+.bio-indicator--high {
+  background: #fde8ee;
+}
+
+.bio-indicator__label {
+  margin: 0 0 6px;
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bio-indicator__value {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.bio-indicator__status {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.bio-indicator--high .bio-indicator__status {
+  color: #b53b57;
+}
+
+.bio-segments {
+  display: grid;
+  gap: 16px;
+}
+
+.bio-segments__title {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.bio-segments__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bio-segments__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--soft-line);
+}
+
+.bio-segments__item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.bio-segments__name {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.bio-segments__values {
+  grid-column: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.bio-segments__status {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
+.bio-segments__item--high .bio-segments__status {
+  color: #b53b57;
+}
+
+.bio-research {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.bio-research div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.bio-research div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.bio-research dt {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.bio-research dd {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.bio-note {
+  margin: 0;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px dashed var(--soft-line);
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 @media (min-width: 480px) {

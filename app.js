@@ -162,7 +162,8 @@ const state = {
   routine: null,
   activeDayIndex: 0,
   listMode: "active", // "active" | "done"
-  view: "routine", // "routine" | "weight"
+  view: "routine", // "routine" | "weight" | "biometric"
+  inbody: null,
   trackerTab: "weight", // "weight" | "meals" | "steps"
   session: loadSession(),
 };
@@ -710,6 +711,288 @@ function setView(view) {
 function setTrackerTab(tab) {
   state.trackerTab = tab;
   render();
+}
+
+function formatMeasuredAt(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function metricStatus(value, range, highFrom) {
+  if (highFrom != null && value >= highFrom) return "high";
+  if (!Array.isArray(range) || range.length < 2) return "normal";
+  if (value < range[0]) return "low";
+  if (value > range[1]) return "high";
+  return "normal";
+}
+
+function statusLabel(status) {
+  if (status === "low") return "Bajo";
+  if (status === "high") return "Alto";
+  return "Normal";
+}
+
+function formatMetricValue(value, unit = "") {
+  const text = value % 1 === 0 ? String(value) : value.toFixed(1).replace(".", ",");
+  return unit ? `${text}${unit}` : text;
+}
+
+function bandMarkerPercent(value, bands) {
+  const [low, high] = bands;
+  const span = high - low || 1;
+  const paddedLow = low - span * 0.35;
+  const paddedHigh = high + span * 0.35;
+  const total = paddedHigh - paddedLow;
+  const clamped = Math.max(paddedLow, Math.min(paddedHigh, value));
+  return ((clamped - paddedLow) / total) * 100;
+}
+
+function createBioRangeBar(value, bands, status) {
+  const bar = document.createElement("div");
+  bar.className = "bio-range";
+  bar.innerHTML = `
+    <div class="bio-range__labels">
+      <span>Bajo</span>
+      <span>Normal</span>
+      <span>Alto</span>
+    </div>
+    <div class="bio-range__track">
+      <span class="bio-range__zone bio-range__zone--low"></span>
+      <span class="bio-range__zone bio-range__zone--normal"></span>
+      <span class="bio-range__zone bio-range__zone--high"></span>
+      <span class="bio-range__marker bio-range__marker--${status}"></span>
+    </div>
+  `;
+  bar.querySelector(".bio-range__marker").style.left = `${bandMarkerPercent(value, bands)}%`;
+  return bar;
+}
+
+function createBioCard(title, body) {
+  const card = document.createElement("section");
+  card.className = "bio-card";
+  const heading = document.createElement("h3");
+  heading.className = "bio-card__title";
+  heading.textContent = title;
+  card.appendChild(heading);
+  if (typeof body === "string") {
+    const copy = document.createElement("p");
+    copy.className = "bio-card__copy";
+    copy.textContent = body;
+    card.appendChild(copy);
+    return card;
+  }
+  card.appendChild(body);
+  return card;
+}
+
+function renderBiometricView() {
+  const main = document.getElementById("day-content");
+  const rail = document.getElementById("exercise-rail");
+  if (!main) return;
+  if (rail) rail.innerHTML = "";
+
+  if (!state.inbody) {
+    main.innerHTML = `<p class="status">No se pudo cargar la medición biométrica.</p>`;
+    return;
+  }
+
+  const report = state.inbody;
+  const patient = report.patient || {};
+  const latest = report.history?.[report.history.length - 1] || {};
+
+  main.innerHTML = `
+    <div class="bio-view">
+      <section class="bio-hero">
+        <div class="bio-hero__top">
+          <div>
+            <p class="bio-hero__label">Puntuación InBody</p>
+            <p class="bio-hero__score">${report.score}<span>/100</span></p>
+          </div>
+          <div class="bio-hero__meta">
+            <p>${patient.name || "—"}</p>
+            <p>${formatMeasuredAt(report.measuredAt)}</p>
+            <p>${report.device || "InBody"}</p>
+          </div>
+        </div>
+        <dl class="bio-hero__facts">
+          <div><dt>Altura</dt><dd>${patient.heightCm} cm</dd></div>
+          <div><dt>Edad</dt><dd>${patient.age} años</dd></div>
+          <div><dt>Sexo</dt><dd>${patient.gender}</dd></div>
+        </dl>
+      </section>
+
+      <section class="bio-kpis" aria-label="Indicadores principales">
+        <article class="bio-kpi">
+          <p class="bio-kpi__label">Peso</p>
+          <p class="bio-kpi__value">${formatMetricValue(latest.weight || report.composition?.find((m) => m.id === "weight")?.value || 0, " kg")}</p>
+        </article>
+        <article class="bio-kpi">
+          <p class="bio-kpi__label">MME</p>
+          <p class="bio-kpi__value">${formatMetricValue(latest.skeletalMuscleMass || report.muscleFat?.find((m) => m.id === "smm")?.value || 0, " kg")}</p>
+        </article>
+        <article class="bio-kpi">
+          <p class="bio-kpi__label">% Graso</p>
+          <p class="bio-kpi__value">${formatMetricValue(latest.bodyFatPercent || report.obesity?.find((m) => m.id === "pbf")?.value || 0, "%")}</p>
+        </article>
+        <article class="bio-kpi">
+          <p class="bio-kpi__label">IMC</p>
+          <p class="bio-kpi__value">${formatMetricValue(report.obesity?.find((m) => m.id === "bmi")?.value || 0)}</p>
+        </article>
+      </section>
+
+      <div class="bio-stack" id="bio-stack"></div>
+    </div>
+  `;
+
+  const stack = document.getElementById("bio-stack");
+
+  const compositionList = document.createElement("dl");
+  compositionList.className = "bio-metrics";
+  (report.composition || []).forEach((metric) => {
+    const status = metricStatus(metric.value, metric.range);
+    const row = document.createElement("div");
+    row.className = `bio-metrics__row bio-metrics__row--${status}`;
+    row.innerHTML = `
+      <div class="bio-metrics__head">
+        <dt>${metric.label}</dt>
+        <dd>${formatMetricValue(metric.value, ` ${metric.unit}`)}</dd>
+      </div>
+      <p class="bio-metrics__range">Rango ${metric.range[0]} – ${metric.range[1]} ${metric.unit}</p>
+    `;
+    row.appendChild(createBioRangeBar(metric.value, metric.range, status));
+    compositionList.appendChild(row);
+  });
+  stack.appendChild(createBioCard("Composición corporal", compositionList));
+
+  const muscleFat = document.createElement("div");
+  muscleFat.className = "bio-bars";
+  (report.muscleFat || []).forEach((metric) => {
+    const status = metricStatus(metric.value, metric.bands);
+    const item = document.createElement("article");
+    item.className = "bio-bars__item";
+    item.innerHTML = `
+      <div class="bio-bars__head">
+        <h4>${metric.label}</h4>
+        <p>${formatMetricValue(metric.value, ` ${metric.unit}`)}</p>
+      </div>
+    `;
+    item.appendChild(createBioRangeBar(metric.value, metric.bands, status));
+    muscleFat.appendChild(item);
+  });
+  stack.appendChild(createBioCard("Músculo y grasa", muscleFat));
+
+  const obesity = document.createElement("div");
+  obesity.className = "bio-bars";
+  (report.obesity || []).forEach((metric) => {
+    const status = metricStatus(metric.value, metric.bands);
+    const item = document.createElement("article");
+    item.className = "bio-bars__item";
+    item.innerHTML = `
+      <div class="bio-bars__head">
+        <h4>${metric.label}</h4>
+        <p>${formatMetricValue(metric.value, metric.unit ? ` ${metric.unit}` : "")}</p>
+      </div>
+    `;
+    item.appendChild(createBioRangeBar(metric.value, metric.bands, status));
+    obesity.appendChild(item);
+  });
+  stack.appendChild(createBioCard("Obesidad", obesity));
+
+  const control = report.weightControl || {};
+  const controlGrid = document.createElement("dl");
+  controlGrid.className = "bio-control";
+  controlGrid.innerHTML = `
+    <div><dt>Peso ideal</dt><dd>${formatMetricValue(control.idealWeightKg, " kg")}</dd></div>
+    <div><dt>Control de peso</dt><dd>${control.weightKg > 0 ? "+" : ""}${formatMetricValue(control.weightKg, " kg")}</dd></div>
+    <div><dt>Control de grasa</dt><dd>${control.fatKg > 0 ? "+" : ""}${formatMetricValue(control.fatKg, " kg")}</dd></div>
+    <div><dt>Control muscular</dt><dd>+${formatMetricValue(control.muscleKg, " kg")}</dd></div>
+  `;
+  stack.appendChild(createBioCard("Control de peso", controlGrid));
+
+  const indicators = document.createElement("div");
+  indicators.className = "bio-indicators";
+  (report.indicators || []).forEach((metric) => {
+    const status = metricStatus(metric.value, metric.bands, metric.highFrom);
+    const card = document.createElement("article");
+    card.className = `bio-indicator bio-indicator--${status}`;
+    card.innerHTML = `
+      <p class="bio-indicator__label">${metric.label}</p>
+      <p class="bio-indicator__value">${formatMetricValue(metric.value, metric.unit || "")}</p>
+      <p class="bio-indicator__status">${statusLabel(status)}</p>
+    `;
+    indicators.appendChild(card);
+  });
+  stack.appendChild(createBioCard("Indicadores de salud", indicators));
+
+  const segmentWrap = document.createElement("div");
+  segmentWrap.className = "bio-segments";
+  ["segmentalLean", "segmentalFat"].forEach((key, index) => {
+    const title = index === 0 ? "Masa magra segmental" : "Grasa segmental";
+    const block = document.createElement("section");
+    block.className = "bio-segments__block";
+    block.innerHTML = `<h4 class="bio-segments__title">${title}</h4>`;
+    const list = document.createElement("ul");
+    list.className = "bio-segments__list";
+    (report[key] || []).forEach((row) => {
+      const item = document.createElement("li");
+      const status = row.status ? statusLabel(row.status) : "Normal";
+      const statusClass = row.status || "normal";
+      item.className = `bio-segments__item bio-segments__item--${statusClass}`;
+      item.innerHTML = `
+        <span class="bio-segments__name">${row.segment}</span>
+        <span class="bio-segments__values">${formatMetricValue(row.kg, " kg")} · ${formatMetricValue(row.percent, "%")}</span>
+        <span class="bio-segments__status">${status}</span>
+      `;
+      list.appendChild(item);
+    });
+    block.appendChild(list);
+    segmentWrap.appendChild(block);
+  });
+  stack.appendChild(createBioCard("Análisis segmental", segmentWrap));
+
+  const historyChart = document.createElement("section");
+  historyChart.className = "bio-card";
+  historyChart.innerHTML = `<h3 class="bio-card__title">Evolución del peso</h3>`;
+  const chartHost = document.createElement("div");
+  chartHost.className = "weight-chart";
+  chartHost.id = "bio-weight-chart";
+  historyChart.appendChild(chartHost);
+  stack.appendChild(historyChart);
+
+  renderTrendChart(
+    chartHost,
+    (report.history || []).map((entry) => ({
+      date: entry.date,
+      value: entry.weight,
+    })),
+    {
+      ariaLabel: "Evolución del peso corporal",
+      emptyNone: "Sin historial de peso.",
+      emptyOne: "Se necesita otra medición para ver la evolución.",
+    }
+  );
+
+  const research = document.createElement("dl");
+  research.className = "bio-research";
+  (report.research || []).forEach((item) => {
+    const row = document.createElement("div");
+    row.innerHTML = `<dt>${item.label}</dt><dd>${item.value}</dd>`;
+    research.appendChild(row);
+  });
+  stack.appendChild(createBioCard("Parámetros de investigación", research));
+
+  const note = document.createElement("p");
+  note.className = "bio-note";
+  note.textContent =
+    "Primera versión con datos de ejemplo del informe InBody. Más adelante podremos cargar mediciones reales desde el PDF o la balanza.";
+  stack.appendChild(note);
 }
 
 function svgEl(name, attrs = {}) {
@@ -1385,10 +1668,15 @@ function renderTrackerView() {
 
 function setupDockNav() {
   const userBtn = document.getElementById("nav-user");
+  const biometricBtn = document.getElementById("nav-biometric");
   const routineBtn = document.getElementById("nav-routine");
 
   userBtn?.addEventListener("click", () => {
     if (state.view !== "weight") setView("weight");
+  });
+
+  biometricBtn?.addEventListener("click", () => {
+    if (state.view !== "biometric") setView("biometric");
   });
 
   routineBtn?.addEventListener("click", () => {
@@ -1666,7 +1954,7 @@ function setActiveRailThumb(exerciseId, { ensureVisible = false } = {}) {
 }
 
 function updateScrollSpy() {
-  if (state.view === "weight") return;
+  if (state.view === "weight" || state.view === "biometric") return;
   if (performance.now() < scrollSpyLockedUntil) return;
 
   const main = document.getElementById("day-content");
@@ -2056,6 +2344,16 @@ function renderTabs() {
   const nav = document.getElementById("day-tabs");
   if (!nav) return;
   nav.innerHTML = "";
+
+  if (state.view === "biometric") {
+    nav.setAttribute("aria-label", "Medición biométrica");
+    const title = document.createElement("div");
+    title.className = "view-title";
+    title.setAttribute("aria-current", "page");
+    title.textContent = "Medición biométrica";
+    nav.appendChild(title);
+    return;
+  }
 
   if (state.view === "weight") {
     nav.setAttribute("aria-label", "Peso y comidas");
@@ -2616,25 +2914,31 @@ function setupAddExerciseUi() {
 function render() {
   const app = document.getElementById("app");
   const userBtn = document.getElementById("nav-user");
+  const biometricBtn = document.getElementById("nav-biometric");
   const routineBtn = document.getElementById("nav-routine");
   const onWeight = state.view === "weight";
+  const onBiometric = state.view === "biometric";
+  const onRoutine = state.view === "routine";
 
   app?.setAttribute("data-view", state.view);
   userBtn?.classList.toggle("is-active", onWeight);
   userBtn?.classList.toggle("is-counting", pedometer.wantRunning);
-  routineBtn?.classList.toggle("is-active", !onWeight);
-  if (onWeight) {
-    userBtn?.setAttribute("aria-current", "page");
-    routineBtn?.removeAttribute("aria-current");
-  } else {
-    routineBtn?.setAttribute("aria-current", "page");
-    userBtn?.removeAttribute("aria-current");
-  }
+  biometricBtn?.classList.toggle("is-active", onBiometric);
+  routineBtn?.classList.toggle("is-active", onRoutine);
+
+  userBtn?.toggleAttribute("aria-current", onWeight);
+  biometricBtn?.toggleAttribute("aria-current", onBiometric);
+  routineBtn?.toggleAttribute("aria-current", onRoutine);
 
   renderTabs();
 
   if (onWeight) {
     renderTrackerView();
+    return;
+  }
+
+  if (onBiometric) {
+    renderBiometricView();
     return;
   }
 
@@ -2650,9 +2954,17 @@ async function init() {
   attachScrollSpy();
 
   try {
-    const response = await fetch("data/routine.json");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.routine = await response.json();
+    const [routineRes, inbodyRes] = await Promise.all([
+      fetch("data/routine.json"),
+      fetch("data/inbody.json"),
+    ]);
+    if (!routineRes.ok) throw new Error(`HTTP ${routineRes.status}`);
+    state.routine = await routineRes.json();
+    if (inbodyRes.ok) {
+      state.inbody = await inbodyRes.json();
+    } else {
+      console.warn("InBody sample data unavailable", inbodyRes.status);
+    }
     render();
   } catch (error) {
     document.getElementById("day-content").innerHTML =
